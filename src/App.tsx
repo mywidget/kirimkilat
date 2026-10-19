@@ -403,65 +403,65 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
         {/* Metric Summary Strip - Visible ONLY to Logged-in Staff (Admin & Kurir) */}
         {currentUser && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between h-full min-h-[118px]">
               <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
                 <span>Total Invoice Aktif</span>
                 <Package className="w-4 h-4 text-indigo-600" />
               </div>
-              <div className="font-mono tabular-nums text-xl font-bold text-slate-900 mt-1">
+              <div className="font-mono tabular-nums text-2xl font-bold text-slate-900 my-1">
                 {invoices.length}
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                <span>{invoices.filter((i) => i.diambil === 1).length} Diambil</span>
-                <span className="mx-1">·</span>
+              <div className="text-[11px] text-slate-500 truncate">
+                <span className="font-semibold text-slate-700">{invoices.filter((i) => i.diambil === 1).length} Diambil</span>
+                <span className="mx-1.5">·</span>
                 <span>{invoices.filter((i) => i.diambil === 0).length} Menunggu</span>
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between h-full min-h-[118px]">
               <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
                 <span>Kurir Dalam Perjalanan</span>
                 <Truck className="w-4 h-4 text-emerald-600" />
               </div>
-              <div className="font-mono tabular-nums text-xl font-bold text-slate-900 mt-1">
+              <div className="font-mono tabular-nums text-2xl font-bold text-slate-900 my-1">
                 {couriers.filter((c) => c.status_aktif === 'mengantar').length}
               </div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                <span>{couriers.length} Kurir terdaftar di sistem</span>
+              <div className="text-[11px] text-slate-500 truncate">
+                <span className="font-semibold text-slate-700">{couriers.length} Kurir</span> terdaftar di sistem
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between h-full min-h-[118px]">
               <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
                 <span>Paket Terkirim Hari Ini</span>
                 <ShieldCheck className="w-4 h-4 text-indigo-600" />
               </div>
-              <div className="font-mono tabular-nums text-xl font-bold text-slate-900 mt-1">
+              <div className="font-mono tabular-nums text-2xl font-bold text-slate-900 my-1">
                 {invoices.filter((i) => i.status_pengiriman === 'terkirim').length}
               </div>
-              <div className="text-[11px] text-emerald-600 font-medium mt-1">
-                <span>Verifikasi bukti & tanda tangan</span>
+              <div className="text-[11px] text-emerald-600 font-medium truncate">
+                Verifikasi bukti & tanda tangan
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between h-full min-h-[118px]">
               <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
                 <span>Sistem Database POS</span>
                 <Database className="w-4 h-4 text-indigo-600" />
               </div>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-2 my-1">
                 <span
-                  className={`w-2.5 h-2.5 rounded-full ${
+                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                     dbStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
                   }`}
                 />
-                <span className="text-sm font-bold text-slate-900">
-                  {dbStatus?.connected ? 'Server Terhubung (Online)' : 'Mode Intranet Lokal'}
+                <span className="text-base font-bold text-slate-900 truncate">
+                  {dbStatus?.connected ? 'Server Terhubung' : 'Mode Intranet Lokal'}
                 </span>
               </div>
-              <div className="text-[11px] text-slate-500 mt-1 truncate">
-                Sinkronisasi data transaksi kasir & logistik real-time
+              <div className="text-[11px] text-slate-500 truncate">
+                Sinkronisasi data transaksi kasir real-time
               </div>
             </div>
           </div>
