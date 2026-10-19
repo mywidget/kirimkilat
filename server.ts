@@ -437,6 +437,10 @@ function mapDbInvoiceToAppInvoice(row: mysql.RowDataPacket, items: unknown[] = [
     foto_bukti: null,
     nama_penerima: statusKirim === 'diterima' ? (row.customer_name || 'Penerima') : null,
     waktu_terkirim: row.tgl_terima || null,
+    no_referensi:
+      row.no_referensi ||
+      row.kode_referensi ||
+      `REF-${String(row.id_invoice).padStart(4, '0').slice(-4)}${((row.id_invoice * 37) % 900 + 100)}`,
     items,
     pembayaran,
   };
@@ -446,15 +450,16 @@ initMySqlConnection();
 
 // ======================== API ROUTES ========================
 
-// 0. Authentication endpoint (Tabel user: admin & kurir level='kurir')
+// 0. Authentication endpoint (Tabel user: autentikasi langsung dari database MySQL live)
 app.post('/api/auth/login', async (req: Request, res: Response) => {
-  const { username, password } = req.body;
+  const { username, password, role } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username dan password wajib diisi.' });
   }
 
   const cleanUser = String(username).trim();
   const cleanPass = String(password).trim();
+  const requestedRole = role ? String(role).trim().toLowerCase() : null;
 
   try {
     // Attempt database reconnection if pool is not active
@@ -462,169 +467,200 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       await initMySqlConnection();
     }
 
-    if (isMySqlConnected && mysqlPool) {
-      let rows: mysql.RowDataPacket[] = [];
-      try {
-        const [resUser] = await mysqlPool.query<mysql.RowDataPacket[]>(
-          `SELECT * FROM \`user\` WHERE LOWER(username) = LOWER(?) OR LOWER(nama) = LOWER(?) LIMIT 1`,
-          [cleanUser, cleanUser]
-        );
-        rows = resUser;
-      } catch (err1) {
-        // Fallback if table name is 'users'
-        try {
-          const [resUsers] = await mysqlPool.query<mysql.RowDataPacket[]>(
-            `SELECT * FROM \`users\` WHERE LOWER(username) = LOWER(?) OR LOWER(nama) = LOWER(?) LIMIT 1`,
-            [cleanUser, cleanUser]
-          );
-          rows = resUsers;
-        } catch (err2) {
-          console.error('[Login DB Error] Query failed on user/users table:', err1, err2);
-        }
-      }
-
-      if (Array.isArray(rows) && rows.length > 0) {
-        const u = rows[0];
-        const storedPassword = u.password || u.pass || u.passwd || u.user_password || u.kunci;
-        const userId = Number(u.id_user || u.id || u.user_id) || 1;
-        const userName = u.username || u.user_name || cleanUser;
-        const fullName = u.nama || u.name || u.nama_lengkap || userName;
-        const rawLevel = String(u.level || u.role || u.tipe || 'admin').toLowerCase();
-        const isKurir = rawLevel === 'kurir';
-        const userPhone = u.no_hp || u.phone || u.telepon || u.hp || '-';
-        const userPhoto = u.foto || u.avatar || '/src/assets/images/courier_rider_avatar_1792303374167.jpg';
-
-        const isMatched = verifyPassword(cleanPass, storedPassword);
-
-        if (isMatched) {
-          const courierData = isKurir
-            ? activeCouriers.find((c) => c.id === userId || c.nama.toLowerCase() === fullName.toLowerCase())
-            : null;
-
-          console.log(`[Auth] ✅ User '${userName}' (${fullName}, level: ${rawLevel}) logged in successfully from MySQL database.`);
-
-          return res.json({
-            success: true,
-            message: `Login berhasil sebagai ${isKurir ? 'Kurir' : 'Administrator'} (${fullName})!`,
-            user: {
-              id: userId,
-              username: userName,
-              nama: fullName,
-              level: isKurir ? 'kurir' : 'admin',
-              id_kurir: isKurir ? userId : null,
-              no_hp: userPhone,
-              foto: courierData?.foto || userPhoto,
-            },
-          });
-        } else {
-          console.warn(`[Auth] ❌ Password mismatch for database user '${cleanUser}'.`);
-          return res.status(401).json({
-            error: 'Kata sandi tidak sesuai! Pastikan password Anda sesuai dengan akun yang terdaftar di database.',
-          });
-        }
-      } else {
-        console.warn(`[Auth] ⚠️ User '${cleanUser}' not found in database table 'user'.`);
-      }
-    } else {
-      console.warn(`[Auth] Database offline during login attempt for '${cleanUser}'. Message: ${dbConnectionMessage}`);
-    }
-
-    // Fallback for demo credentials if database is offline or matching default demo credentials
-    if (cleanUser.toLowerCase() === 'admin' && (cleanPass === 'admin123' || cleanPass === 'admin')) {
-      return res.json({
-        success: true,
-        message: 'Login berhasil sebagai Administrator Default (Ahmad Sayuti)!',
-        user: {
-          id: 2,
-          username: 'admin',
-          nama: 'Ahmad Sayuti',
-          level: 'admin',
-          id_kurir: null,
-          no_hp: '087771262100',
-          foto: '/src/assets/images/courier_rider_avatar_1792303374167.jpg',
-        },
+    if (!isMySqlConnected || !mysqlPool) {
+      console.warn(`[Auth] Database offline during login attempt for '${cleanUser}'.`);
+      return res.status(503).json({
+        error: `Database MySQL belum terhubung (${dbConnectionMessage}). Periksa koneksi ke server ${dbConfig.host}:${dbConfig.port}.`,
       });
     }
 
-    if (cleanUser.toLowerCase() === 'jaja' && (cleanPass === 'kurir123' || cleanPass === 'jaja')) {
-      return res.json({
-        success: true,
-        message: 'Login berhasil sebagai Kurir Lapangan (Jaja)!',
-        user: {
-          id: 376,
-          username: 'jaja',
-          nama: 'Jaja',
-          level: 'kurir',
-          id_kurir: 376,
-          no_hp: '08176800210',
-          foto: '/src/assets/images/courier_rider_avatar_1792303374167.jpg',
-        },
+    // Query exact or case-insensitive username / nama in database table 'user'
+    let rows: mysql.RowDataPacket[] = [];
+    try {
+      const [resUser] = await mysqlPool.query<mysql.RowDataPacket[]>(
+        `SELECT * FROM \`user\` WHERE LOWER(username) = LOWER(?) OR LOWER(nama) = LOWER(?) LIMIT 1`,
+        [cleanUser, cleanUser]
+      );
+      rows = resUser;
+    } catch (errQuery) {
+      console.error('[Auth Error] Query user table failed:', errQuery);
+      return res.status(500).json({
+        error: `Gagal membaca tabel user di database: ${(errQuery as Error).message}`,
       });
     }
 
-    if (!isMySqlConnected) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      console.warn(`[Auth] ⚠️ User '${cleanUser}' not found in database table 'user'.`);
+      return res.status(404).json({
+        error: `Username "${cleanUser}" tidak ditemukan di tabel "user" database MySQL (${dbConfig.database} @ ${dbConfig.host}). Pastikan Anda menggunakan username akun yang terdaftar di database.`,
+      });
+    }
+
+    const u = rows[0];
+
+    // Check account active status in database
+    if (u.aktif && String(u.aktif).toUpperCase() === 'N') {
+      return res.status(403).json({
+        error: `Akun database "${cleanUser}" berstatus non-aktif (aktif='N'). Hubungi Administrator percetakan untuk mengaktifkan kembali akun ini.`,
+      });
+    }
+
+    const userId = Number(u.id_user || u.id || u.user_id) || 1;
+    const userName = u.username || u.user_name || cleanUser;
+    const fullName = u.nama || u.name || u.nama_lengkap || userName;
+    const rawLevel = String(u.level || u.role || u.tipe || '').trim().toLowerCase();
+    const isKurir = rawLevel === 'kurir';
+    const isAdmin = rawLevel === 'admin';
+    const userPhone = u.no_hp || u.phone || u.telepon || u.hp || '-';
+    const userJabatan = u.jabatan || null;
+    const userPhoto =
+      u.foto && u.foto !== 'avatar04.png'
+        ? u.foto
+        : isKurir
+        ? '/src/assets/images/courier_rider_avatar_1792303374167.jpg'
+        : null;
+
+    // Strict Level Enforcement: Only 'admin' and 'kurir' can enter the system
+    if (!isAdmin && !isKurir) {
+      console.warn(`[Auth] 🚫 Access denied for user '${userName}': level is '${u.level}', not admin or kurir.`);
+      return res.status(403).json({
+        error: `Akses ditolak: Akun "${userName}" berlevel "${u.level}". Aplikasi ini hanya dapat diakses oleh user berlevel "admin" atau "kurir".`,
+      });
+    }
+
+    // Role-specific check if user specified the login mode
+    if (requestedRole === 'admin' && !isAdmin) {
+      return res.status(403).json({
+        error: `Akses ditolak: Akun "${userName}" berlevel "${u.level}". Untuk login Admin, hanya user berlevel "admin" yang dapat masuk.`,
+      });
+    }
+
+    if (requestedRole === 'kurir' && !isKurir) {
+      return res.status(403).json({
+        error: `Akses ditolak: Akun "${userName}" berlevel "${u.level}". Untuk login Kurir, hanya user berlevel "kurir" yang dapat masuk.`,
+      });
+    }
+
+    // Verify password against:
+    // 1. u.password (MD5, Bcrypt, SHA1, SHA256, Plaintext)
+    // 2. u.pass_user (PHP Bcrypt $2y$ / $2a$ / $2b$, Plaintext)
+    // 3. u.passcode_password (Default 'bismillah' or custom database passcode)
+    const isMatched =
+      verifyPassword(cleanPass, u.password) ||
+      verifyPassword(cleanPass, u.pass_user) ||
+      verifyPassword(cleanPass, u.passcode_password);
+
+    if (!isMatched) {
+      console.warn(`[Auth] ❌ Password mismatch for database user '${cleanUser}'.`);
       return res.status(401).json({
-        error: `Database MySQL belum terhubung (${dbConnectionMessage}). Periksa kredensial database di file .env server Anda.`,
+        error: `Kata sandi tidak sesuai untuk akun database "${userName}". Masukkan password atau passcode database yang valid.`,
       });
     }
 
-    return res.status(401).json({
-      error: `Username "${cleanUser}" tidak ditemukan di database percetakan. Periksa kembali username Anda.`,
+    // Courier assignment from active couriers or newly loaded
+    const courierData = isKurir
+      ? activeCouriers.find((c) => c.id === userId || c.nama.toLowerCase() === fullName.toLowerCase())
+      : null;
+
+    console.log(
+      `[Auth] ✅ User '${userName}' (${fullName}, role: ${rawLevel}, ID: ${userId}) authenticated directly from MySQL database '${dbConfig.database}'.`
+    );
+
+    return res.json({
+      success: true,
+      message: `Login berhasil sebagai ${isKurir ? 'Kurir' : 'Administrator'} (${fullName})!`,
+      user: {
+        id: userId,
+        username: userName,
+        nama: fullName,
+        level: isKurir ? 'kurir' : 'admin',
+        raw_level: rawLevel,
+        jabatan: userJabatan,
+        id_kurir: isKurir ? userId : null,
+        no_hp: userPhone,
+        foto: courierData?.foto || userPhoto || '/src/assets/images/courier_rider_avatar_1792303374167.jpg',
+        db_source: `${dbConfig.database}@${dbConfig.host}`,
+      },
     });
   } catch (err: unknown) {
     const error = err as Error;
     console.error('Error during login:', error);
-    return res.status(500).json({ error: `Gagal melakukan verifikasi login: ${error.message}` });
+    return res.status(500).json({ error: `Gagal melakukan verifikasi login database: ${error.message}` });
   }
 });
 
-// Quick user switcher / previews for both Admin and Kurir
+// Quick user switcher / previews queried LIVE from MySQL database
 app.get('/api/auth/users', async (_req: Request, res: Response) => {
+  if (!isMySqlConnected || !mysqlPool) {
+    await initMySqlConnection();
+  }
+
   if (isMySqlConnected && mysqlPool) {
     try {
-      let rows: mysql.RowDataPacket[] = [];
+      const [rows] = await mysqlPool.query<mysql.RowDataPacket[]>(
+        `SELECT id_user, username, nama, level, jabatan, no_hp, foto, aktif 
+         FROM \`user\` 
+         WHERE aktif = 'Y' 
+         ORDER BY 
+           CASE 
+             WHEN level = 'kurir' THEN 1 
+             WHEN level = 'admin' THEN 2 
+             ELSE 3 
+           END, 
+           nama ASC 
+         LIMIT 60`
+      );
+
+      let totalRegistered = rows.length;
       try {
-        const [r] = await mysqlPool.query<mysql.RowDataPacket[]>(
-          `SELECT * FROM \`user\` WHERE level = 'kurir' OR level = 'admin' LIMIT 20`
+        const [totalCountRows] = await mysqlPool.query<mysql.RowDataPacket[]>(
+          `SELECT COUNT(*) as total FROM \`user\``
         );
-        rows = r;
+        totalRegistered = totalCountRows[0]?.total || rows.length;
       } catch {
-        try {
-          const [r2] = await mysqlPool.query<mysql.RowDataPacket[]>(
-            `SELECT * FROM \`users\` WHERE level = 'kurir' OR level = 'admin' LIMIT 20`
-          );
-          rows = r2;
-        } catch {
-          // ignore
-        }
+        // ignore count error
       }
 
-      if (Array.isArray(rows) && rows.length > 0) {
-        return res.json(
-          rows.map((u) => ({
-            id: Number(u.id_user || u.id || u.user_id) || 1,
-            username: u.username || u.user_name || 'user',
-            nama: u.nama || u.name || u.username || 'User',
-            level: String(u.level || u.role || 'admin').toLowerCase() === 'kurir' ? 'kurir' : 'admin',
-            id_kurir: String(u.level || u.role || '').toLowerCase() === 'kurir' ? Number(u.id_user || u.id) : null,
-            no_hp: u.no_hp || u.phone || u.telepon || '-',
-          }))
-        );
-      }
+      const formattedUsers = rows.map((u) => {
+        const rawLevel = String(u.level || 'staff').toLowerCase();
+        const isKurir = rawLevel === 'kurir';
+        const userId = Number(u.id_user || u.id);
+        return {
+          id: userId,
+          username: u.username || 'user',
+          nama: u.nama || u.username || 'User',
+          level: isKurir ? 'kurir' : 'admin',
+          raw_level: rawLevel,
+          jabatan: u.jabatan || null,
+          id_kurir: isKurir ? userId : null,
+          no_hp: u.no_hp || '-',
+          aktif: u.aktif || 'Y',
+          foto: u.foto && u.foto !== 'avatar04.png' ? u.foto : null,
+        };
+      });
+
+      return res.json({
+        connected: true,
+        database: dbConfig.database,
+        host: dbConfig.host,
+        total_registered_users: totalRegistered,
+        users: formattedUsers,
+      });
     } catch (e: unknown) {
       const err = e as Error;
       console.warn('[Users] Database query notice:', err.message);
     }
   }
 
-  // Fallback defaults matching registered user records
-  res.json([
-    { id: 2, username: 'admin', nama: 'Ahmad Sayuti', level: 'admin', id_kurir: null, no_hp: '087771262100' },
-    { id: 376, username: 'jaja', nama: 'Jaja', level: 'kurir', id_kurir: 376, no_hp: '08176800210' },
-    { id: 419, username: 'admin2', nama: 'IT Supports', level: 'admin', id_kurir: null, no_hp: '089611274798' },
-    { id: 4401, username: 'say', nama: 'Ahmad', level: 'admin', id_kurir: null, no_hp: '087776761331' },
-    { id: 4452, username: 'fatih', nama: 'Al Fatih', level: 'admin', id_kurir: null, no_hp: '087720082086' },
-  ]);
+  // If database is not connected
+  res.status(503).json({
+    connected: false,
+    error: dbConnectionMessage,
+    database: dbConfig.database,
+    host: dbConfig.host,
+    total_registered_users: 0,
+    users: [],
+  });
 });
 
 // 1. Database status diagnostic endpoint

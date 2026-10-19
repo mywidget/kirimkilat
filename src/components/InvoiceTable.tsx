@@ -55,6 +55,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
     const matchesSearch =
       inv.no_invoice.toLowerCase().includes(searchTerm.toLowerCase()) ||
       inv.id_sub_invoice.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (inv.no_referensi && inv.no_referensi.toLowerCase().includes(searchTerm.toLowerCase())) ||
       inv.nama_pelanggan.toLowerCase().includes(searchTerm.toLowerCase()) ||
       inv.alamat_tujuan.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -253,10 +254,15 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
                   {/* Invoice and Sub-Invoice Numbers */}
                   <td className="py-3.5 px-4">
                     <div className="font-mono font-bold text-slate-900 text-xs">{inv.no_invoice}</div>
-                    <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-500">
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-slate-500">
                       <span className="text-indigo-600 font-mono font-semibold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
                         {inv.id_sub_invoice}
                       </span>
+                      {inv.no_referensi && (
+                        <span className="text-emerald-700 font-mono font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 text-[10px]" title="Nomor Referensi Struk">
+                          {inv.no_referensi}
+                        </span>
+                      )}
                       <span>·</span>
                       <span>{inv.tanggal}</span>
                     </div>

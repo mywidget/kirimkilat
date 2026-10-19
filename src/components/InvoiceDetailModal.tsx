@@ -27,11 +27,16 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
               <Printer className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-base font-bold text-slate-900">{invoice.no_invoice}</h2>
                 <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200">
                   {invoice.id_sub_invoice}
                 </span>
+                {invoice.no_referensi && (
+                  <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200" title="Kode Referensi Keamanan Pelacakan">
+                    Kode Ref: {invoice.no_referensi}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
                 Tanggal Order: {invoice.tanggal} · Terhubung Sistem Transaksi Percetakan
@@ -40,7 +45,7 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -54,11 +59,21 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
               <span className="text-slate-400 uppercase font-medium text-[10px] tracking-wider block">Pelanggan</span>
               <span className="font-semibold text-slate-900 text-sm mt-0.5 block">{invoice.nama_pelanggan}</span>
               <span className="text-slate-500 mt-0.5 block">{invoice.no_telepon}</span>
-              <div className="mt-2 flex items-center gap-1.5">
-                <span className="text-slate-400 font-medium text-[10px]">Layanan:</span>
-                <span className="text-indigo-700 bg-indigo-50 font-bold px-2 py-0.5 rounded border border-indigo-200">
-                  {invoice.cara_ambil === 'dikirim' ? 'Pengiriman Kurir' : 'Ambil Sendiri di Toko'}
-                </span>
+              <div className="mt-2 flex flex-col gap-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-medium text-[10px]">Layanan:</span>
+                  <span className="text-indigo-700 bg-indigo-50 font-bold px-2 py-0.5 rounded border border-indigo-200">
+                    {invoice.cara_ambil === 'dikirim' ? 'Pengiriman Kurir' : 'Ambil Sendiri di Toko'}
+                  </span>
+                </div>
+                {invoice.no_referensi && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 font-medium text-[10px]">No. Ref Struk:</span>
+                    <span className="text-emerald-700 bg-emerald-50 font-mono font-bold px-2 py-0.5 rounded border border-emerald-200">
+                      {invoice.no_referensi}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -112,7 +112,7 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       {/* Top Banner: Courier Profile Switcher & Barcode Scan CTA */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -313,11 +313,16 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
                         #{index + 1}
                       </span>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono font-bold text-sm text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
                             {inv.id_sub_invoice}
                           </span>
                           <span className="text-xs text-slate-500 font-mono">({inv.no_invoice})</span>
+                          {inv.no_referensi && (
+                            <span className="text-[11px] font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              Ref: {inv.no_referensi}
+                            </span>
+                          )}
                         </div>
                         <span className="text-[11px] text-slate-500 mt-0.5 block">
                           Order Cetak: {inv.tanggal}
@@ -341,32 +346,34 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
                     </div>
                   </div>
 
-                  {/* Destination & Address Section */}
-                  <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Left: Alamat Tujuan Lengkap & Kontak Pemesan */}
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2.5">
-                        <MapPin className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
-                        <div>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                            Penerima & Alamat Pengantaran
-                          </span>
-                          <h4 className="font-bold text-slate-900 text-sm mt-0.5">
-                            {inv.nama_pelanggan}
-                          </h4>
-                          <p className="text-xs text-slate-700 font-medium mt-1 leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                            {inv.alamat_tujuan}, <span className="font-semibold text-slate-900">{inv.kota}</span>
-                          </p>
-                          {inv.catatan_kurir && (
-                            <p className="text-[11px] text-indigo-700 bg-indigo-50 p-2 rounded-lg mt-1.5 border border-indigo-100">
-                              <b>Instruksi Khusus:</b> {inv.catatan_kurir}
+                  {/* Destination & Address Section (Balanced Equal-Height Grid) */}
+                  <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+                    {/* Left Sub-Card: Alamat Tujuan Lengkap & Kontak Pemesan */}
+                    <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/80 flex flex-col justify-between h-full space-y-3">
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-2.5">
+                          <MapPin className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                              Penerima & Alamat Pengantaran
+                            </span>
+                            <h4 className="font-bold text-slate-900 text-sm mt-0.5 truncate">
+                              {inv.nama_pelanggan}
+                            </h4>
+                            <p className="text-xs text-slate-700 font-medium mt-1 leading-relaxed bg-white p-2.5 rounded-lg border border-slate-200/80 shadow-2xs">
+                              {inv.alamat_tujuan}, <span className="font-semibold text-slate-900">{inv.kota}</span>
                             </p>
-                          )}
+                            {inv.catatan_kurir && (
+                              <p className="text-[11px] text-indigo-700 bg-indigo-50/80 p-2 rounded-lg mt-1.5 border border-indigo-100">
+                                <b>Instruksi Khusus:</b> {inv.catatan_kurir}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </div>
 
-                      {/* Navigation Buttons */}
-                      <div className="flex flex-wrap items-center gap-2 pt-2">
+                      {/* Navigation Buttons Pinned to Bottom */}
+                      <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-200/80 mt-auto">
                         <a
                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
                             `${inv.alamat_tujuan}, ${inv.kota}`
@@ -376,7 +383,7 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
                         >
                           <Navigation className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Buka Rute Google Maps</span>
+                          <span>Buka Google Maps</span>
                           <ExternalLink className="w-3 h-3 text-slate-400" />
                         </a>
 
@@ -392,32 +399,44 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
                       </div>
                     </div>
 
-                    {/* Right: Rincian Barang Cetakan & Keuangan */}
-                    <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 flex flex-col justify-between text-xs space-y-3">
+                    {/* Right Sub-Card: Rincian Barang Cetakan & Keuangan */}
+                    <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/80 flex flex-col justify-between h-full space-y-3">
                       <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                          Rincian Item Produk Pesanan:
-                        </span>
-                        <div className="divide-y divide-slate-200">
-                          {inv.items?.map((item) => (
-                            <div key={item.id} className="py-1.5 flex items-center justify-between">
-                              <span className="font-semibold text-slate-800">{item.nama_barang}</span>
-                              <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
-                                {item.qty} {item.satuan}
-                              </span>
-                            </div>
-                          ))}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                            Rincian Item Produk Pesanan:
+                          </span>
+                          {inv.no_referensi && (
+                            <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              Ref: {inv.no_referensi}
+                            </span>
+                          )}
+                        </div>
+                        <div className="divide-y divide-slate-200/80 max-h-[140px] overflow-y-auto pr-1">
+                          {inv.items && inv.items.length > 0 ? (
+                            inv.items.map((item) => (
+                              <div key={item.id} className="py-1.5 flex items-center justify-between gap-2 text-xs">
+                                <span className="font-semibold text-slate-800 truncate">{item.nama_barang}</span>
+                                <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200/80 shrink-0">
+                                  {item.qty} {item.satuan}
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="py-2 text-slate-400 text-xs italic">Item percetakan standar</div>
+                          )}
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
-                        <span className="text-slate-600">Status Bayar:</span>
+                      {/* Status Bayar Pinned to Bottom */}
+                      <div className="pt-3 border-t border-slate-200/80 flex items-center justify-between mt-auto">
+                        <span className="text-slate-600 text-xs font-medium">Status Bayar:</span>
                         {inv.sisa_tagihan > 0 ? (
-                          <span className="font-mono font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                          <span className="font-mono font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded text-xs border border-amber-200">
                             Wajib Tagih COD: Rp {inv.sisa_tagihan.toLocaleString('id-ID')}
                           </span>
                         ) : (
-                          <span className="font-mono font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                          <span className="font-mono font-bold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded text-xs border border-emerald-200">
                             LUNAS (Tanpa COD)
                           </span>
                         )}
@@ -494,11 +513,16 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
                         #{index + 1}
                       </span>
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono font-bold text-sm text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">
                             {inv.id_sub_invoice}
                           </span>
                           <span className="text-xs text-slate-500 font-mono">({inv.no_invoice})</span>
+                          {inv.no_referensi && (
+                            <span className="text-[11px] font-mono font-bold text-emerald-900 bg-emerald-100/80 px-2 py-0.5 rounded border border-emerald-300">
+                              Ref: {inv.no_referensi}
+                            </span>
+                          )}
                         </div>
                         <span className="text-[11px] text-slate-600 mt-0.5 block">
                           Diterima oleh: <b className="text-slate-900">{inv.nama_penerima || inv.nama_pelanggan}</b>
@@ -514,35 +538,48 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
                     </div>
                   </div>
 
-                  {/* Body Info */}
-                  <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2.5">
-                        <MapPin className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                        <div>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                            Alamat Pengantaran Sukses
-                          </span>
-                          <h4 className="font-bold text-slate-900 text-sm mt-0.5">
-                            {inv.nama_pelanggan}
-                          </h4>
-                          <p className="text-xs text-slate-700 font-medium mt-1 leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                            {inv.alamat_tujuan}, <span className="font-semibold text-slate-900">{inv.kota}</span>
-                          </p>
+                  {/* Body Info (Balanced Equal-Height Grid) */}
+                  <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+                    <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/80 flex flex-col justify-between h-full space-y-3">
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-2.5">
+                          <MapPin className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                              Alamat Pengantaran Sukses
+                            </span>
+                            <h4 className="font-bold text-slate-900 text-sm mt-0.5 truncate">
+                              {inv.nama_pelanggan}
+                            </h4>
+                            <p className="text-xs text-slate-700 font-medium mt-1 leading-relaxed bg-white p-2.5 rounded-lg border border-slate-200/80 shadow-2xs">
+                              {inv.alamat_tujuan}, <span className="font-semibold text-slate-900">{inv.kota}</span>
+                            </p>
+                          </div>
                         </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-200/80 text-[11px] text-slate-500 mt-auto">
+                        Kontak: <span className="font-mono font-medium text-slate-700">{inv.no_telepon}</span>
                       </div>
                     </div>
 
-                    <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 flex flex-col justify-between text-xs space-y-3">
+                    <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-200/80 flex flex-col justify-between h-full space-y-3">
                       <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                          Item yang Telah Diserahterimakan:
-                        </span>
-                        <div className="divide-y divide-slate-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                            Item yang Telah Diserahterimakan:
+                          </span>
+                          {inv.no_referensi && (
+                            <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              Ref: {inv.no_referensi}
+                            </span>
+                          )}
+                        </div>
+                        <div className="divide-y divide-slate-200/80 max-h-[140px] overflow-y-auto pr-1">
                           {inv.items?.map((item) => (
-                            <div key={item.id} className="py-1.5 flex items-center justify-between">
-                              <span className="font-semibold text-slate-800">{item.nama_barang}</span>
-                              <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
+                            <div key={item.id} className="py-1.5 flex items-center justify-between gap-2 text-xs">
+                              <span className="font-semibold text-slate-800 truncate">{item.nama_barang}</span>
+                              <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200/80 shrink-0">
                                 {item.qty} {item.satuan}
                               </span>
                             </div>
@@ -550,9 +587,9 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
-                        <span className="text-slate-600">Status Pembayaran:</span>
-                        <span className="font-mono font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                      <div className="pt-3 border-t border-slate-200/80 flex items-center justify-between mt-auto">
+                        <span className="text-slate-600 text-xs font-medium">Status Pembayaran:</span>
+                        <span className="font-mono font-bold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded text-xs border border-emerald-200">
                           LUNAS / SELESAI DITERIMA
                         </span>
                       </div>

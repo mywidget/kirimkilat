@@ -34,6 +34,9 @@ export interface AppUser {
   id_kurir?: number | null;
   no_hp?: string;
   foto?: string;
+  jabatan?: string;
+  raw_level?: string;
+  db_source?: string;
 }
 
 export interface Invoice {
@@ -64,6 +67,7 @@ export interface Invoice {
   waktu_terkirim?: string | null;
   items?: InvoiceItem[];
   pembayaran?: BayarInvoiceDetail[];
+  no_referensi?: string;
 }
 
 export interface Courier {

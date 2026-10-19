@@ -57,21 +57,22 @@ export const CustomerTrackingView: React.FC<CustomerTrackingViewProps> = ({
     setErrorMsg(null);
 
     const query = searchQuery.trim().toLowerCase();
-    const phoneInput = phoneSuffix.trim().replace(/[^0-9]/g, '');
+    const securityInput = phoneSuffix.trim();
 
     if (!query) {
       setErrorMsg('Silakan masukkan Nomor Resi atau Nomor Invoice.');
       return;
     }
 
-    // Match by sub invoice (B00...), invoice number (INV/...), or ID
+    // Match by sub invoice (B00...), invoice number (INV/...), ID, or reference number (REF-...)
     const found = invoices.find(
       (inv) =>
         inv.id_sub_invoice.toLowerCase() === query ||
         inv.no_invoice.toLowerCase() === query ||
         String(inv.id) === query ||
         `inv-${inv.id}`.toLowerCase() === query ||
-        `inv/${inv.id}`.toLowerCase() === query
+        `inv/${inv.id}`.toLowerCase() === query ||
+        (inv.no_referensi && inv.no_referensi.toLowerCase() === query)
     );
 
     if (!found) {
@@ -81,25 +82,36 @@ export const CustomerTrackingView: React.FC<CustomerTrackingViewProps> = ({
       return;
     }
 
-    // Security Verification: If guest, require matching last 4 digits of customer phone
+    // Security Verification: If guest, require matching 4 digits of customer phone OR matching reference number
     if (!isStaff) {
-      if (!phoneInput) {
+      if (!securityInput) {
         setErrorMsg(
-          'Untuk keamanan data pesanan, masukkan 4 digit terakhir nomor HP pemesan yang didaftarkan di percetakan.'
+          'Untuk keamanan dan perlindungan privasi data pesanan, masukkan 4 digit terakhir No. HP pemesan ATAU Nomor Referensi Struk.'
         );
         return;
       }
 
       const rawPhone = (found.no_telepon || '').replace(/[^0-9]/g, '');
       const last4 = rawPhone.slice(-4);
-      const isPhoneMatched =
-        phoneInput === last4 ||
-        rawPhone.endsWith(phoneInput) ||
-        phoneInput === rawPhone;
+      const digitsOnly = securityInput.replace(/[^0-9]/g, '');
 
-      if (!isPhoneMatched) {
+      // Check match by phone (last 4 digits or full phone)
+      const isPhoneMatched =
+        digitsOnly.length >= 4 &&
+        (digitsOnly === last4 || rawPhone.endsWith(digitsOnly) || digitsOnly === rawPhone);
+
+      // Check match by No Referensi Struk (e.g. REF-201691 or 201691)
+      const isReferenceMatched = Boolean(
+        found.no_referensi &&
+          (found.no_referensi.toLowerCase() === securityInput.toLowerCase() ||
+            found.no_referensi.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() ===
+              securityInput.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() ||
+            found.no_referensi.toLowerCase().endsWith(securityInput.toLowerCase()))
+      );
+
+      if (!isPhoneMatched && !isReferenceMatched) {
         setErrorMsg(
-          'Verifikasi Keamanan Gagal: 4 digit terakhir No. HP tidak sesuai dengan data pemesan resi ini. Hal ini untuk mencegah pihak lain mengintip data pesanan Anda.'
+          'Verifikasi Keamanan Gagal: 4 digit No. HP atau Nomor Referensi tidak sesuai dengan data pemesan resi ini. Hal ini untuk mencegah pihak lain mengintip data pesanan Anda.'
         );
         return;
       }
@@ -193,19 +205,18 @@ export const CustomerTrackingView: React.FC<CustomerTrackingViewProps> = ({
                 </div>
               </div>
 
-              {/* Field 2: 4 Digit Terakhir No. HP Pemesan (Keamanan Data) */}
+              {/* Field 2: 4 Digit Terakhir No. HP Pemesan atau No. Referensi Struk (Keamanan Data) */}
               <div className="md:col-span-4 relative">
                 <label className="block text-[11px] font-semibold text-indigo-200 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                   <Shield className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>4 Digit Terakhir No. HP {isStaff && '(Opsional Petugas)'}</span>
+                  <span>4 Digit HP atau No. Ref {isStaff && '(Opsional Petugas)'}</span>
                 </label>
                 <div className="relative">
                   <input
                     type="text"
-                    maxLength={4}
-                    placeholder={isStaff ? 'Mode Petugas (Bebas)' : 'Misal: 3311 (4 angka belakang)'}
+                    placeholder={isStaff ? 'Mode Petugas (Bebas)' : 'Misal: 3311 atau REF-2016'}
                     value={phoneSuffix}
-                    onChange={(e) => setPhoneSuffix(e.target.value.replace(/[^0-9]/g, ''))}
+                    onChange={(e) => setPhoneSuffix(e.target.value)}
                     className="w-full pl-3.5 pr-4 py-3 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl text-white placeholder-slate-400 text-xs sm:text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-emerald-400 focus:bg-white/15 transition-all"
                   />
                 </div>
@@ -237,7 +248,7 @@ export const CustomerTrackingView: React.FC<CustomerTrackingViewProps> = ({
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-[11px] text-slate-400">
-                🔒 <b>Proteksi Privasi:</b> 4 digit nomor HP wajib diisi untuk mencegah nomor resi ditebak atau disalahgunakan pihak lain.
+                🔒 <b>Keamanan Pelacakan (Dual-Factor):</b> Masukkan 4 digit No. HP pemesan ATAU No. Referensi Struk untuk melindungi privasi data pesanan Anda dari pihak luar.
               </span>
             </div>
 
@@ -261,13 +272,19 @@ export const CustomerTrackingView: React.FC<CustomerTrackingViewProps> = ({
                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
                   Nomor Resi Pengiriman
                 </span>
-                <div className="flex items-center gap-2.5 mt-1">
+                <div className="flex flex-wrap items-center gap-2.5 mt-1">
                   <h2 className="text-2xl font-bold font-mono text-indigo-700 tracking-tight">
                     {selectedInvoice.id_sub_invoice}
                   </h2>
                   <span className="text-xs font-mono font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
                     {selectedInvoice.no_invoice}
                   </span>
+                  {selectedInvoice.no_referensi && (
+                    <span className="text-xs font-mono font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Ref: {selectedInvoice.no_referensi}</span>
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -417,9 +434,9 @@ export const CustomerTrackingView: React.FC<CustomerTrackingViewProps> = ({
           </div>
 
           {/* Card 2 & 3: Order Details & Payment (Balanced 2-column grid, uniform width) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full items-stretch">
             {/* Column 1: Barang Cetakan */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between h-full min-h-[350px]">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm mb-4 flex items-center gap-2">
                   <Package className="w-4 h-4 text-indigo-600" />
@@ -462,7 +479,7 @@ export const CustomerTrackingView: React.FC<CustomerTrackingViewProps> = ({
             </div>
 
             {/* Column 2: Status Pembayaran & Tagihan */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between h-full min-h-[350px]">
               <div>
                 <h3 className="font-bold text-slate-900 text-sm mb-4 flex items-center gap-2">
                   <Clock className="w-4 h-4 text-emerald-600" />
@@ -487,6 +504,15 @@ export const CustomerTrackingView: React.FC<CustomerTrackingViewProps> = ({
                         : formatMaskedPhone(selectedInvoice.no_telepon)}
                     </span>
                   </div>
+
+                  {selectedInvoice.no_referensi && (
+                    <div className="flex justify-between py-2 border-b border-slate-100 items-center">
+                      <span className="text-slate-500">No. Referensi Struk:</span>
+                      <span className="font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-xs">
+                        {selectedInvoice.no_referensi}
+                      </span>
+                    </div>
+                  )}
 
                   <div className="flex justify-between py-2 border-b border-slate-100">
                     <span className="text-slate-500">Total Nilai Tagihan:</span>
