@@ -142,7 +142,7 @@ let activeCouriers: CourierState[] = [
     no_hp: '0817-6800-210',
     plat_nomor: 'A 4210 BE',
     jenis_kendaraan: 'motor',
-    foto: '/src/assets/images/courier_rider_avatar_1792303374167.jpg',
+    foto: null as unknown as string,
     current_lat: -6.1235,
     current_lng: 106.1520,
     kecepatan_kmh: 32,
@@ -167,7 +167,7 @@ let activeCouriers: CourierState[] = [
     no_hp: '0812-9844-3311',
     plat_nomor: 'A 3892 KZ',
     jenis_kendaraan: 'motor',
-    foto: '/src/assets/images/courier_rider_avatar_1792303374167.jpg',
+    foto: null as unknown as string,
     current_lat: -6.1215,
     current_lng: 106.1505,
     kecepatan_kmh: 0,
@@ -189,7 +189,7 @@ let activeCouriers: CourierState[] = [
     no_hp: '0857-4433-2211',
     plat_nomor: 'A 9481 UX (Blind Van)',
     jenis_kendaraan: 'mobil',
-    foto: '/src/assets/images/courier_rider_avatar_1792303374167.jpg',
+    foto: null as unknown as string,
     current_lat: -6.1215,
     current_lng: 106.1505,
     kecepatan_kmh: 0,
@@ -342,7 +342,7 @@ async function syncCouriersFromDb() {
             no_hp: u.no_hp || '0812-0000-0000',
             plat_nomor: 'A ' + Math.floor(1000 + Math.random() * 9000) + ' BE',
             jenis_kendaraan: 'motor',
-            foto: '/src/assets/images/courier_rider_avatar_1792303374167.jpg',
+            foto: (u.foto && u.foto !== 'avatar04.png' && u.foto !== 'null') ? u.foto : null,
             current_lat: PRINTING_HUB.lat,
             current_lng: PRINTING_HUB.lng,
             kecepatan_kmh: 0,
@@ -514,10 +514,8 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     const userPhone = u.no_hp || u.phone || u.telepon || u.hp || '-';
     const userJabatan = u.jabatan || null;
     const userPhoto =
-      u.foto && u.foto !== 'avatar04.png'
-        ? u.foto
-        : isKurir
-        ? '/src/assets/images/courier_rider_avatar_1792303374167.jpg'
+      u.foto && u.foto !== 'avatar04.png' && u.foto !== 'null' && String(u.foto).trim().length > 0
+        ? String(u.foto).trim()
         : null;
 
     // Strict Level Enforcement: Only 'admin' and 'kurir' can enter the system
@@ -578,7 +576,7 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
         jabatan: userJabatan,
         id_kurir: isKurir ? userId : null,
         no_hp: userPhone,
-        foto: courierData?.foto || userPhoto || '/src/assets/images/courier_rider_avatar_1792303374167.jpg',
+        foto: userPhoto || courierData?.foto || null,
         db_source: `${dbConfig.database}@${dbConfig.host}`,
       },
     });
@@ -586,6 +584,96 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     const error = err as Error;
     console.error('Error during login:', error);
     return res.status(500).json({ error: `Gagal melakukan verifikasi login database: ${error.message}` });
+  }
+});
+
+// Update profile in MySQL database (nama, no_hp, foto, optional password)
+app.put('/api/user/profile', async (req: Request, res: Response) => {
+  const { id, nama, no_hp, foto, password } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: 'User ID wajib disertakan.' });
+  }
+
+  if (!nama || !nama.trim()) {
+    return res.status(400).json({ error: 'Nama tidak boleh kosong.' });
+  }
+
+  try {
+    if (!isMySqlConnected || !mysqlPool) {
+      await initMySqlConnection();
+    }
+
+    if (!isMySqlConnected || !mysqlPool) {
+      return res.status(503).json({ error: 'Database belum terhubung.' });
+    }
+
+    // Verify user exists in database
+    const [rows] = await mysqlPool.query<mysql.RowDataPacket[]>(
+      `SELECT * FROM \`user\` WHERE id_user = ? LIMIT 1`,
+      [Number(id)]
+    );
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(404).json({ error: 'Pengguna tidak ditemukan di database.' });
+    }
+
+    const u = rows[0];
+    const cleanNama = nama.trim().slice(0, 30);
+    const cleanPhone = (no_hp || '').trim().slice(0, 30);
+    const cleanFoto = foto !== undefined ? (foto ? String(foto).trim().slice(0, 255) : null) : u.foto;
+
+    if (password && typeof password === 'string' && password.trim().length > 0) {
+      const cleanPass = password.trim();
+      const md5Pass = crypto.createHash('md5').update(cleanPass).digest('hex');
+      const bcryptPass = bcrypt.hashSync(cleanPass, 10);
+
+      await mysqlPool.query(
+        `UPDATE \`user\` SET nama = ?, no_hp = ?, foto = ?, password = ?, pass_user = ? WHERE id_user = ?`,
+        [cleanNama, cleanPhone, cleanFoto, md5Pass, bcryptPass, Number(id)]
+      );
+    } else {
+      await mysqlPool.query(
+        `UPDATE \`user\` SET nama = ?, no_hp = ?, foto = ? WHERE id_user = ?`,
+        [cleanNama, cleanPhone, cleanFoto, Number(id)]
+      );
+    }
+
+    // If kurir, update in-memory active couriers
+    const courierObj = activeCouriers.find((c) => c.id === Number(id));
+    if (courierObj) {
+      courierObj.nama = cleanNama;
+      courierObj.no_hp = cleanPhone || courierObj.no_hp;
+      if (cleanFoto) {
+        courierObj.foto = cleanFoto;
+      }
+      broadcastSse('courier_update', courierObj);
+    }
+
+    const rawLevel = String(u.level || '').toLowerCase();
+    const isKurir = rawLevel === 'kurir';
+
+    console.log(`[Profile] ✅ User ID ${id} (${cleanNama}) updated profile successfully.`);
+
+    return res.json({
+      success: true,
+      message: 'Profil berhasil diperbarui di database!',
+      user: {
+        id: Number(id),
+        username: u.username,
+        nama: cleanNama,
+        level: isKurir ? 'kurir' : 'admin',
+        raw_level: rawLevel,
+        jabatan: u.jabatan || null,
+        id_kurir: isKurir ? Number(id) : null,
+        no_hp: cleanPhone,
+        foto: cleanFoto || null,
+        db_source: `${dbConfig.database}@${dbConfig.host}`,
+      },
+    });
+  } catch (err: unknown) {
+    const error = err as Error;
+    console.error('Error updating user profile:', error);
+    return res.status(500).json({ error: `Gagal memperbarui profil: ${error.message}` });
   }
 });
 
@@ -741,6 +829,10 @@ app.get('/api/invoices', async (req: Request, res: Response) => {
   const caraAmbil = req.query.cara_ambil as string;
   const statusKirim = req.query.status_kirim as string;
   const limitParam = parseInt((req.query.limit as string) || '100');
+
+  if (!isMySqlConnected || !mysqlPool) {
+    await initMySqlConnection();
+  }
 
   if (!mysqlPool) {
     return res.status(503).json({ error: 'Database belum terhubung' });

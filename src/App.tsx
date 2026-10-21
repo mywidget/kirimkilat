@@ -9,6 +9,7 @@ import { PushNotificationManager } from './components/PushNotificationManager';
 import { DatabaseStatusModal } from './components/DatabaseStatusModal';
 import { CourierAnalyticsDashboard } from './components/CourierAnalyticsDashboard';
 import { LoginForm } from './components/LoginForm';
+import { EditProfileModal } from './components/EditProfileModal';
 import { AppUser, Courier, Invoice, PushNotificationPayload, DatabaseStatus } from './types';
 import { playNotificationSound } from './utils/audio';
 import { Truck, Package, Clock, ShieldCheck, Database, RefreshCw, AlertCircle, Search, Lock } from 'lucide-react';
@@ -28,6 +29,7 @@ export default function App() {
     return null;
   });
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [activeTab, setActiveTab] = useState<'map' | 'invoices' | 'courier' | 'tracking' | 'analytics' | 'database'>(() => {
     if (typeof window !== 'undefined') {
@@ -374,7 +376,7 @@ export default function App() {
     invoices.find((i) => i.id === primaryCourier?.id_invoice_aktif) || invoices[0] || null;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans m-0 p-0">
       {/* Universal Top Bar Contract */}
       <Header
         activeTab={activeTab}
@@ -397,6 +399,7 @@ export default function App() {
           setIsGuestMode(false);
           setIsLoginModalOpen(true);
         }}
+        onOpenEditProfile={() => setIsEditProfileModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -607,6 +610,34 @@ export default function App() {
             }}
           />
         </div>
+      )}
+
+      {/* Edit Profile Modal */}
+      {currentUser && (
+        <EditProfileModal
+          currentUser={currentUser}
+          isOpen={isEditProfileModalOpen}
+          onClose={() => setIsEditProfileModalOpen(false)}
+          onProfileUpdated={(updatedUser) => {
+            setCurrentUser(updatedUser);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('kirimkilat_user', JSON.stringify(updatedUser));
+            }
+            // Sync with couriers list if this user is a courier
+            setCouriers((prev) =>
+              prev.map((c) =>
+                c.id === updatedUser.id
+                  ? {
+                      ...c,
+                      nama: updatedUser.nama,
+                      no_hp: updatedUser.no_hp || c.no_hp,
+                      foto: updatedUser.foto || c.foto,
+                    }
+                  : c
+              )
+            );
+          }}
+        />
       )}
     </div>
   );

@@ -16,6 +16,7 @@ import {
   UserCheck,
   Building2,
 } from 'lucide-react';
+import { UserAvatar } from './UserAvatar';
 
 interface CustomerTrackingViewProps {
   invoices: Invoice[];
@@ -397,11 +398,12 @@ export const CustomerTrackingView: React.FC<CustomerTrackingViewProps> = ({
             {selectedInvoice.kurir && (
               <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <img
-                    src={selectedInvoice.kurir.foto}
-                    alt={selectedInvoice.kurir.nama}
-                    referrerPolicy="no-referrer"
-                    className="w-12 h-12 rounded-full object-cover border-2 border-indigo-500 shadow-xs"
+                  <UserAvatar
+                    foto={selectedInvoice.kurir.foto}
+                    nama={selectedInvoice.kurir.nama}
+                    level="kurir"
+                    size="lg"
+                    showBadge
                   />
                   <div>
                     <h4 className="font-semibold text-slate-900 text-sm">

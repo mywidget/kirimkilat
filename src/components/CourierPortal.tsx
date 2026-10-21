@@ -19,6 +19,7 @@ import {
   Shield,
 } from 'lucide-react';
 import { CourierScannerModal } from './CourierScannerModal';
+import { UserAvatar } from './UserAvatar';
 
 interface CourierPortalProps {
   couriers: Courier[];
@@ -116,15 +117,13 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
       {/* Top Banner: Courier Profile Switcher & Barcode Scan CTA */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="relative">
-            <img
-              src={activeCourier?.foto}
-              alt={activeCourier?.nama}
-              referrerPolicy="no-referrer"
-              className="w-12 h-12 rounded-full object-cover border-2 border-indigo-600 shadow-xs"
-            />
-            <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full" />
-          </div>
+          <UserAvatar
+            foto={activeCourier?.foto}
+            nama={activeCourier?.nama}
+            level="kurir"
+            size="lg"
+            showBadge
+          />
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-slate-900">{activeCourier?.nama}</h2>

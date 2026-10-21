@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { Courier, Invoice } from '../types';
 import { Navigation, Battery, Gauge, Clock, Phone, MapPin, Play, RotateCcw, Building2, User, ChevronRight } from 'lucide-react';
+import { UserAvatar } from './UserAvatar';
 
 interface LeafletMapProps {
   courier: Courier | null;
@@ -250,15 +251,13 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         <div className="absolute bottom-4 left-4 right-4 md:right-auto md:w-[420px] z-10 bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-slate-200">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="relative">
-                <img
-                  src={courier.foto}
-                  alt={courier.nama}
-                  referrerPolicy="no-referrer"
-                  className="w-12 h-12 rounded-full object-cover border-2 border-indigo-500 shadow-xs"
-                />
-                <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full" />
-              </div>
+              <UserAvatar
+                foto={courier.foto}
+                nama={courier.nama}
+                level="kurir"
+                size="lg"
+                showBadge
+              />
               <div>
                 <h3 className="font-semibold text-slate-900 text-sm">{courier.nama}</h3>
                 <div className="flex items-center gap-2 text-xs text-slate-500">
