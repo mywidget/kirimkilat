@@ -84,6 +84,9 @@ export interface Courier {
   status_aktif: 'standby' | 'mengantar' | 'offline';
   heading_deg: number;
   id_invoice_aktif?: number | null;
+  is_real_gps?: boolean;
+  gps_accuracy_m?: number;
+  last_gps_update?: string;
 }
 
 export interface PushNotificationPayload {

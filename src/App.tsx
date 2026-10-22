@@ -253,6 +253,40 @@ export default function App() {
     }
   };
 
+  const handleSendCourierGps = async (
+    courierId: number,
+    lat: number,
+    lng: number,
+    speed?: number,
+    heading?: number,
+    battery?: number,
+    accuracy?: number
+  ) => {
+    try {
+      const res = await fetch(`/api/couriers/${courierId}/location`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat,
+          lng,
+          speed: speed !== undefined && speed !== null ? Math.round(speed > 100 ? speed : speed * 3.6) : undefined,
+          heading,
+          battery,
+          accuracy,
+          is_real_gps: true,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCouriers((prev) =>
+          prev.map((c) => (c.id === courierId ? { ...c, ...data.courier } : c))
+        );
+      }
+    } catch (e) {
+      console.error('Error sending courier GPS:', e);
+    }
+  };
+
   const handleAdvanceStep = async (courierId: number) => {
     try {
       await fetch(`/api/couriers/${courierId}/step`, { method: 'POST' });
@@ -523,7 +557,7 @@ export default function App() {
             invoices={invoices}
             onToggleDiambil={handleToggleDiambil}
             onUpdateStatus={handleUpdateStatus}
-            onSendCourierGps={() => {}}
+            onSendCourierGps={handleSendCourierGps}
             onAdvanceStep={handleAdvanceStep}
             onScanSubInvoice={handleScanSubInvoice}
             currentUser={currentUser}

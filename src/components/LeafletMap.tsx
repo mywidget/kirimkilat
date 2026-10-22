@@ -28,6 +28,10 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   const passedPolylineRef = useRef<L.Polyline | null>(null);
 
   const [isFollowingCourier, setIsFollowingCourier] = useState(true);
+  const [roadCoordinates, setRoadCoordinates] = useState<[number, number][]>([]);
+  const [roadDistanceKm, setRoadDistanceKm] = useState<number | null>(null);
+  const [roadDurationMin, setRoadDurationMin] = useState<number | null>(null);
+  const [isRoutingLoading, setIsRoutingLoading] = useState<boolean>(false);
 
   // Printing Hub coordinates in Serang, Banten
   const HUB_COORDS: [number, number] = [-6.1215, 106.1505];
@@ -89,6 +93,50 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     };
   }, []);
 
+  // Fetch real road navigation geometry from OSRM
+  useEffect(() => {
+    if (!courier) return;
+    const destPos: [number, number] = activeInvoice
+      ? [activeInvoice.lat_tujuan, activeInvoice.lng_tujuan]
+      : [-6.1361, 106.1462];
+
+    let isCancelled = false;
+    setIsRoutingLoading(true);
+
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${courier.current_lng},${courier.current_lat};${destPos[1]},${destPos[0]}?overview=full&geometries=geojson`;
+
+    fetch(osrmUrl)
+      .then((res) => res.json())
+      .then((data) => {
+        if (isCancelled) return;
+        if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          // OSRM [lng, lat] -> Leaflet [lat, lng]
+          const coords: [number, number][] = route.geometry.coordinates.map(
+            (c: [number, number]) => [c[1], c[0]]
+          );
+          setRoadCoordinates(coords);
+          setRoadDistanceKm(parseFloat((route.distance / 1000).toFixed(1)));
+          setRoadDurationMin(Math.max(1, Math.round(route.duration / 60)));
+        } else {
+          setRoadCoordinates([[courier.current_lat, courier.current_lng], destPos]);
+        }
+      })
+      .catch((err) => {
+        console.warn('OSRM routing fetch failed:', err);
+        if (!isCancelled) {
+          setRoadCoordinates([[courier.current_lat, courier.current_lng], destPos]);
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) setIsRoutingLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [courier?.current_lat, courier?.current_lng, activeInvoice?.lat_tujuan, activeInvoice?.lng_tujuan]);
+
   // Update Courier Marker & Route Polyline
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -136,6 +184,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         <div style="font-weight: 700; color: #0f172a; font-size: 13px;">Kurir: ${courier.nama}</div>
         <div style="color: #64748b; font-size: 11px; margin-top: 2px;">${courier.plat_nomor} · ${courier.jenis_kendaraan.toUpperCase()}</div>
         <div style="margin-top: 6px; font-size: 11px; color: #059669; font-weight: 600;">Status: ${courier.status_aktif.toUpperCase()} (${courier.kecepatan_kmh} km/h)</div>
+        ${courier.is_real_gps ? '<div style="margin-top: 4px; font-size: 10px; color: #047857; font-weight: bold;">🟢 GPS Satelit Asli Perangkat</div>' : ''}
       </div>
     `);
 
@@ -170,23 +219,19 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       `);
     }
 
-    // 3. Draw Route Polyline
-    // Waypoints from Hub to Courier, then Courier to Destination
-    const fullRoute: [number, number][] = [
-      HUB_COORDS,
-      courierPos,
-      destPos,
-    ];
+    // 3. Draw Route Polyline with Real Road Geometry (OSRM)
+    const activeRouteCoords = roadCoordinates.length > 0 ? roadCoordinates : [courierPos, destPos];
 
     if (!routePolylineRef.current) {
-      routePolylineRef.current = L.polyline([courierPos, destPos], {
-        color: '#6366f1',
-        weight: 5,
-        opacity: 0.7,
-        dashArray: '8, 8',
+      routePolylineRef.current = L.polyline(activeRouteCoords, {
+        color: '#4f46e5',
+        weight: 6,
+        opacity: 0.85,
+        lineCap: 'round',
+        lineJoin: 'round',
       }).addTo(map);
     } else {
-      routePolylineRef.current.setLatLngs([courierPos, destPos]);
+      routePolylineRef.current.setLatLngs(activeRouteCoords);
     }
 
     if (!passedPolylineRef.current) {
@@ -203,7 +248,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     if (isFollowingCourier) {
       map.panTo(courierPos, { animate: true, duration: 0.8 });
     }
-  }, [courier, activeInvoice, isFollowingCourier]);
+  }, [courier, activeInvoice, isFollowingCourier, roadCoordinates]);
 
   const fitAllBounds = () => {
     if (!mapInstanceRef.current || !courier) return;
@@ -268,9 +313,21 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-slate-100 text-slate-700 text-xs px-2.5 py-1 rounded-md font-medium">
-              <Battery className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="font-mono tabular-nums">{Math.round(courier.baterai_persen)}%</span>
+            <div className="flex items-center gap-1.5">
+              {courier.is_real_gps ? (
+                <div className="flex items-center gap-1 bg-emerald-50 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
+                  <span>GPS Satelit Riil</span>
+                </div>
+              ) : (
+                <div className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
+                  Mode Simulasi
+                </div>
+              )}
+              <div className="flex items-center gap-1 bg-slate-100 text-slate-700 text-xs px-2.5 py-1 rounded-md font-medium">
+                <Battery className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="font-mono tabular-nums">{Math.round(courier.baterai_persen)}%</span>
+              </div>
             </div>
           </div>
 
@@ -294,6 +351,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
               <div className="font-mono tabular-nums font-bold text-slate-900 text-sm mt-0.5">
                 {activeInvoice?.status_pengiriman === 'terkirim'
                   ? 'Sampai'
+                  : roadDurationMin !== null
+                  ? `${roadDurationMin} menit`
                   : activeInvoice?.status_pengiriman === 'mendekati_lokasi'
                   ? '3 menit'
                   : '12 menit'}
@@ -303,11 +362,13 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
             <div className="bg-slate-50 p-2 rounded-lg">
               <div className="flex items-center justify-center gap-1 text-[11px] text-slate-500">
                 <MapPin className="w-3 h-3 text-amber-500" />
-                <span>Jarak Sisa</span>
+                <span>Jarak Jalan</span>
               </div>
               <div className="font-mono tabular-nums font-bold text-slate-900 text-sm mt-0.5">
                 {activeInvoice?.status_pengiriman === 'terkirim'
                   ? '0 km'
+                  : roadDistanceKm !== null
+                  ? `${roadDistanceKm} km`
                   : activeInvoice?.status_pengiriman === 'mendekati_lokasi'
                   ? '0.4 km'
                   : '2.8 km'}

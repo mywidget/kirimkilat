@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Courier, Invoice, AppUser } from '../types';
 import {
   Truck,
@@ -17,6 +17,12 @@ import {
   Barcode,
   Clock,
   Shield,
+  Radio,
+  Satellite,
+  Compass,
+  BatteryCharging,
+  RefreshCw,
+  Zap,
 } from 'lucide-react';
 import { CourierScannerModal } from './CourierScannerModal';
 import { UserAvatar } from './UserAvatar';
@@ -30,7 +36,15 @@ interface CourierPortalProps {
     status: Invoice['status_pengiriman'],
     meta?: { catatan_kurir?: string; nama_penerima?: string }
   ) => void;
-  onSendCourierGps: (courierId: number, lat: number, lng: number) => void;
+  onSendCourierGps: (
+    courierId: number,
+    lat: number,
+    lng: number,
+    speed?: number,
+    heading?: number,
+    battery?: number,
+    accuracy?: number
+  ) => void;
   onAdvanceStep: (courierId: number) => void;
   onScanSubInvoice: (id_sub_invoice: string, courierId: number) => Promise<boolean>;
   currentUser?: AppUser | null;
@@ -41,6 +55,7 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
   invoices,
   onToggleDiambil,
   onUpdateStatus,
+  onSendCourierGps,
   onAdvanceStep,
   onScanSubInvoice,
   currentUser,
@@ -59,7 +74,156 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
   const [activeTabManifest, setActiveTabManifest] = useState<'akan_diantar' | 'selesai'>('akan_diantar');
   const [deliveredSuccessNotice, setDeliveredSuccessNotice] = useState<string | null>(null);
 
+  // Real-Time GPS Tracking state for Field Courier Device
+  const [isLiveGpsActive, setIsLiveGpsActive] = useState<boolean>(false);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [gpsSpeed, setGpsSpeed] = useState<number | null>(null);
+  const [gpsHeading, setGpsHeading] = useState<number | null>(null);
+  const [lastGpsCoords, setLastGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [lastGpsTime, setLastGpsTime] = useState<string | null>(null);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [isWakeLockSupported, setIsWakeLockSupported] = useState<boolean>(false);
+  const [wakeLockActive, setWakeLockActive] = useState<boolean>(false);
+  const wakeLockRef = useRef<any>(null);
+  const watchIdRef = useRef<number | null>(null);
+
   const activeCourier = couriers.find((c) => c.id === selectedCourierId) || couriers[0];
+
+  // Check WakeLock support on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'wakeLock' in navigator) {
+      setIsWakeLockSupported(true);
+    }
+  }, []);
+
+  // Real-Time GPS Watcher via Geolocation API
+  useEffect(() => {
+    if (!isLiveGpsActive) {
+      if (watchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+        setWakeLockActive(false);
+      }
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setGpsError('Peramban tidak mendukung Geolocation API.');
+      setIsLiveGpsActive(false);
+      return;
+    }
+
+    setGpsError(null);
+
+    // Request screen WakeLock so the courier phone does not sleep while riding/driving
+    if ('wakeLock' in navigator) {
+      (navigator as any).wakeLock
+        .request('screen')
+        .then((lock: any) => {
+          wakeLockRef.current = lock;
+          setWakeLockActive(true);
+          lock.addEventListener('release', () => {
+            setWakeLockActive(false);
+          });
+        })
+        .catch(() => {});
+    }
+
+    // High Accuracy Geolocation Watch Position
+    const watchId = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const { latitude, longitude, accuracy, speed, heading } = pos.coords;
+        setLastGpsCoords({ lat: latitude, lng: longitude });
+        setGpsAccuracy(Math.round(accuracy));
+        setGpsSpeed(speed !== null && speed !== undefined ? Math.round(speed * 3.6) : 0);
+        setGpsHeading(heading !== null && heading !== undefined ? Math.round(heading) : 0);
+        setLastGpsTime(new Date().toLocaleTimeString('id-ID'));
+        setGpsError(null);
+
+        // Fetch battery if available
+        let batteryLevel: number | undefined = undefined;
+        try {
+          if ('getBattery' in navigator) {
+            const battery: any = await (navigator as any).getBattery();
+            batteryLevel = Math.round(battery.level * 100);
+          }
+        } catch {
+          // ignore
+        }
+
+        // Broadcast real GPS to server -> server broadcasts to admin & customer via SSE
+        onSendCourierGps(
+          activeCourier.id,
+          latitude,
+          longitude,
+          speed || 0,
+          heading || 0,
+          batteryLevel,
+          accuracy
+        );
+      },
+      (err) => {
+        let msg = 'Gagal mengakses GPS perangkat.';
+        if (err.code === 1) msg = 'Izin lokasi (GPS) ditolak. Mohon aktifkan izin GPS di pengaturan HP.';
+        else if (err.code === 2) msg = 'Sinyal GPS satelit tidak terdeteksi. Pastikan GPS HP menyala.';
+        else if (err.code === 3) msg = 'Koneksi GPS satelit timeout. Mencoba kembali...';
+        setGpsError(msg);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 2000,
+        timeout: 10000,
+      }
+    );
+
+    watchIdRef.current = watchId;
+
+    return () => {
+      if (watchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+        setWakeLockActive(false);
+      }
+    };
+  }, [isLiveGpsActive, activeCourier.id, onSendCourierGps]);
+
+  // One-time manual GPS pulse refresh
+  const handleManualGpsPulse = () => {
+    if (!navigator.geolocation) {
+      setGpsError('Geolocation tidak didukung pada browser ini.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy, speed, heading } = pos.coords;
+        setLastGpsCoords({ lat: latitude, lng: longitude });
+        setGpsAccuracy(Math.round(accuracy));
+        setLastGpsTime(new Date().toLocaleTimeString('id-ID'));
+        setGpsError(null);
+        onSendCourierGps(
+          activeCourier.id,
+          latitude,
+          longitude,
+          speed || 0,
+          heading || 0,
+          activeCourier.baterai_persen,
+          accuracy
+        );
+      },
+      (err) => {
+        setGpsError(`Gagal membaca GPS: ${err.message}`);
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
+  };
 
   // Helper to determine if an invoice has already been delivered & handed over
   const isInvoiceCompleted = (inv: Invoice) => {
@@ -175,6 +339,125 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
             <span>Scan Resi Paket Sebelum Antar</span>
           </button>
         </div>
+      </div>
+
+      {/* Real-Time GPS Telemetry Panel (Hardware GPS Perangkat HP Kurir) */}
+      <div className={`p-5 rounded-2xl border transition-all ${
+        isLiveGpsActive 
+          ? 'bg-gradient-to-r from-emerald-50 via-teal-50 to-white border-emerald-300 shadow-sm'
+          : 'bg-white border-slate-200 shadow-xs'
+      }`}>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+              isLiveGpsActive 
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 animate-pulse'
+                : 'bg-slate-100 text-slate-600'
+            }`}>
+              <Satellite className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900">
+                  Pemancar GPS Real-Time (Perangkat HP Lapangan)
+                </h3>
+                {isLiveGpsActive ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
+                    LIVE GPS STREAMING
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                    GPS Standby (Mati)
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                {isLiveGpsActive
+                  ? 'HP Kurir sedang memancarkan koordinat satelit asli ke server setiap 2–3 detik via Geolocation API.'
+                  : 'Aktifkan GPS saat mulai jalan agar rute & pergerakan kurir di peta Admin dan Konsumen 100% nyata mengikuti posisi fisik HP.'}
+              </p>
+            </div>
+          </div>
+
+          {/* Toggle Button & Manual Pulse */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => setIsLiveGpsActive(!isLiveGpsActive)}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs ${
+                isLiveGpsActive
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/25 ring-2 ring-emerald-300'
+                  : 'bg-slate-900 hover:bg-slate-800 text-white'
+              }`}
+            >
+              <Radio className={`w-4 h-4 ${isLiveGpsActive ? 'animate-pulse' : ''}`} />
+              <span>{isLiveGpsActive ? 'Matikan GPS Real-Time' : 'Aktifkan GPS Real-Time (HP Asli)'}</span>
+            </button>
+
+            <button
+              onClick={handleManualGpsPulse}
+              title="Kirim koordinat GPS manual saat ini"
+              className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors border border-slate-200"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* GPS Error Notification */}
+        {gpsError && (
+          <div className="mt-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{gpsError}</span>
+          </div>
+        )}
+
+        {/* Telemetry Status Strip when Active */}
+        {isLiveGpsActive && (
+          <div className="mt-4 pt-4 border-t border-emerald-200/70 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 text-xs">
+            <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-200/80">
+              <span className="text-[10px] text-slate-500 font-semibold uppercase block">Koordinat Nyata</span>
+              <span className="font-mono font-bold text-slate-900 text-xs block truncate mt-0.5">
+                {lastGpsCoords ? `${lastGpsCoords.lat.toFixed(5)}, ${lastGpsCoords.lng.toFixed(5)}` : 'Mendeteksi...'}
+              </span>
+            </div>
+
+            <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-200/80">
+              <span className="text-[10px] text-slate-500 font-semibold uppercase block">Akurasi Satelit</span>
+              <span className="font-mono font-bold text-emerald-700 text-xs block mt-0.5">
+                {gpsAccuracy !== null ? `±${gpsAccuracy} meter` : '-'}
+              </span>
+            </div>
+
+            <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-200/80">
+              <span className="text-[10px] text-slate-500 font-semibold uppercase block">Kecepatan Sensor</span>
+              <span className="font-mono font-bold text-indigo-700 text-xs block mt-0.5">
+                {gpsSpeed !== null ? `${gpsSpeed} km/h` : '0 km/h'}
+              </span>
+            </div>
+
+            <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-200/80">
+              <span className="text-[10px] text-slate-500 font-semibold uppercase block">Arah Kompas</span>
+              <span className="font-mono font-bold text-slate-800 text-xs block mt-0.5">
+                {gpsHeading !== null && gpsHeading > 0 ? `${gpsHeading}°` : 'Utara / Diam'}
+              </span>
+            </div>
+
+            <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-200/80">
+              <span className="text-[10px] text-slate-500 font-semibold uppercase block">WakeLock Layar</span>
+              <span className="font-mono font-bold text-slate-800 text-xs block mt-0.5">
+                {wakeLockActive ? 'Aktif (Tidak Tidur)' : 'Standar'}
+              </span>
+            </div>
+
+            <div className="bg-white/80 p-2.5 rounded-xl border border-emerald-200/80">
+              <span className="text-[10px] text-slate-500 font-semibold uppercase block">Terakhir Dikirim</span>
+              <span className="font-mono font-bold text-slate-800 text-xs block mt-0.5">
+                {lastGpsTime || 'Baru saja'}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Notice Banner when a package is delivered */}
