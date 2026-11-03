@@ -28,6 +28,7 @@ export type CaraAmbil = 'dikirim' | 'diambil' | 'ambil_sendiri' | string;
 
 export interface AppUser {
   id: number;
+  id_user?: number;
   username: string;
   nama: string;
   level: 'admin' | 'kurir';

@@ -10,9 +10,11 @@ import { DatabaseStatusModal } from './components/DatabaseStatusModal';
 import { CourierAnalyticsDashboard } from './components/CourierAnalyticsDashboard';
 import { LoginForm } from './components/LoginForm';
 import { EditProfileModal } from './components/EditProfileModal';
+import { MetricCards } from './components/MetricCards';
 import { AppUser, Courier, Invoice, PushNotificationPayload, DatabaseStatus } from './types';
 import { playNotificationSound } from './utils/audio';
-import { Truck, Package, Clock, ShieldCheck, Database, RefreshCw, AlertCircle, Search, Lock } from 'lucide-react';
+import { getTabFromPath, getPathFromTab, AppTab } from './utils/routes';
+import { Truck, Package, Clock, ShieldCheck, Database, RefreshCw, AlertCircle, Search, Lock, User, X, MapPin } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
@@ -31,23 +33,38 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
   const [isGuestMode, setIsGuestMode] = useState(false);
-  const [activeTab, setActiveTab] = useState<'map' | 'invoices' | 'courier' | 'tracking' | 'analytics' | 'database'>(() => {
+  const [activeTab, setActiveTab] = useState<AppTab>(() => {
     if (typeof window !== 'undefined') {
+      let savedUser: AppUser | null = null;
       try {
         const saved = localStorage.getItem('kirimkilat_user');
-        if (saved) {
-          const user = JSON.parse(saved);
-          if (user?.level === 'kurir') return 'courier';
-        }
+        if (saved) savedUser = JSON.parse(saved);
       } catch {
         // ignore
       }
+
+      // Check current URL route first
+      const routeTab = getTabFromPath(window.location.pathname);
+      if (routeTab) {
+        if (!savedUser && routeTab !== 'tracking') {
+          return 'tracking';
+        }
+        if (savedUser?.level === 'kurir' && (routeTab === 'invoices' || routeTab === 'analytics' || routeTab === 'database')) {
+          return 'courier';
+        }
+        return routeTab;
+      }
+
+      if (savedUser?.level === 'kurir') return 'courier';
+      if (!savedUser) return 'tracking';
     }
     return 'map';
   });
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [couriers, setCouriers] = useState<Courier[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [selectedCourierIdOnMap, setSelectedCourierIdOnMap] = useState<number | null>(null);
+  const [trackedInvoiceId, setTrackedInvoiceId] = useState<number | null>(null);
   const [activeToast, setActiveToast] = useState<PushNotificationPayload | null>(null);
   const [notifications, setNotifications] = useState<PushNotificationPayload[]>([]);
   const [isNotifDrawerOpen, setIsNotifDrawerOpen] = useState(false);
@@ -366,8 +383,8 @@ export default function App() {
     }
   };
 
-  // Strict Role-Based Access Control (RBAC) Guard for tab switching
-  const handleTabChange = useCallback((tab: 'map' | 'invoices' | 'courier' | 'tracking' | 'analytics' | 'database') => {
+  // Strict Role-Based Access Control (RBAC) Guard for tab switching & Browser URL routing
+  const handleTabChange = useCallback((tab: AppTab) => {
     // 1. Guest (Tamu / Pelanggan): HANYA boleh mengakses 'tracking'
     if (!currentUser) {
       if (tab !== 'tracking') {
@@ -375,6 +392,10 @@ export default function App() {
         return;
       }
       setActiveTab('tracking');
+      const targetPath = getPathFromTab('tracking');
+      if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
+        window.history.pushState({ tab: 'tracking' }, '', targetPath);
+      }
       return;
     }
 
@@ -392,8 +413,44 @@ export default function App() {
       }
     } else {
       setActiveTab(tab);
+      const targetPath = getPathFromTab(tab);
+      if (typeof window !== 'undefined' && window.location.pathname !== targetPath) {
+        window.history.pushState({ tab }, '', targetPath);
+      }
     }
   }, [currentUser]);
+
+  // Browser Back/Forward navigation support (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const routeTab = getTabFromPath(window.location.pathname);
+      if (routeTab) {
+        if (!currentUser && routeTab !== 'tracking') {
+          setActiveTab('tracking');
+        } else if (currentUser?.level === 'kurir' && (routeTab === 'invoices' || routeTab === 'analytics' || routeTab === 'database')) {
+          setActiveTab('courier');
+        } else if (routeTab === 'database') {
+          if (currentUser?.level === 'admin') setIsDbModalOpen(true);
+        } else {
+          setActiveTab(routeTab);
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [currentUser]);
+
+  // Sync browser URL whenever activeTab changes or on initial mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const expectedPath = getPathFromTab(activeTab);
+      const currentTabInUrl = getTabFromPath(window.location.pathname);
+      if (window.location.pathname === '/' || currentTabInUrl !== activeTab) {
+        window.history.replaceState({ tab: activeTab }, '', expectedPath);
+      }
+    }
+  }, [activeTab]);
 
   // Enforce RBAC guard on activeTab whenever auth state changes
   useEffect(() => {
@@ -404,13 +461,56 @@ export default function App() {
     }
   }, [currentUser, activeTab]);
 
-  // Find active courier and invoice for map display
-  const primaryCourier = couriers[0] || null;
-  const activeInvoiceForCourier =
-    invoices.find((i) => i.id === primaryCourier?.id_invoice_aktif) || invoices[0] || null;
+  // Active courier for map display
+  const activeCourierForMap =
+    couriers.find((c) => c.id === selectedCourierIdOnMap) || couriers[0] || null;
+
+  // Filter hanya invoice yang berstatus 'dikirim' (persis seperti data invoice)
+  const dikirimInvoices = invoices.filter((inv) => {
+    if (inv.cara_ambil !== undefined && inv.cara_ambil !== 'dikirim') return false;
+    if (inv.status_kirim === 'diterima' || inv.status_pengiriman === 'terkirim') return false;
+    const effectiveStatusKirim =
+      inv.status_kirim || (inv.diambil === 1 ? 'dikirim' : 'belum');
+    return (
+      effectiveStatusKirim === 'dikirim' ||
+      inv.status_pengiriman === 'dalam_perjalanan' ||
+      inv.status_pengiriman === 'mendekati_lokasi'
+    );
+  });
+
+  // Dynamic invoice for map display:
+  // 1. If user explicitly selected an invoice to track, show that (if not completed)
+  // 2. Otherwise, if the courier is actively delivering and has an active invoice in dikirimInvoices, show that
+  // 3. Otherwise, return null (Kurir Standby / Clean Map - NO phantom destination or route)
+  const activeInvoiceForCourier = (() => {
+    if (trackedInvoiceId !== null) {
+      const found = invoices.find((inv) => inv.id === trackedInvoiceId);
+      if (found && found.status_pengiriman !== 'terkirim' && found.status_kirim !== 'diterima') {
+        return found;
+      }
+    }
+    if (activeCourierForMap?.id_invoice_aktif) {
+      const found = dikirimInvoices.find((inv) => inv.id === activeCourierForMap.id_invoice_aktif);
+      if (found) return found;
+    }
+    const inTransit = dikirimInvoices.find(
+      (inv) => inv.id_kurir === activeCourierForMap?.id
+    );
+    if (inTransit) return inTransit;
+
+    return null;
+  })();
+
+  const handleTrackInvoiceOnMap = (invoice: Invoice) => {
+    setTrackedInvoiceId(invoice.id);
+    if (invoice.id_kurir) {
+      setSelectedCourierIdOnMap(invoice.id_kurir);
+    }
+    handleTabChange('map');
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans m-0 p-0">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans m-0 p-0 w-full max-w-full overflow-x-hidden">
       {/* Universal Top Bar Contract */}
       <Header
         activeTab={activeTab}
@@ -428,6 +528,10 @@ export default function App() {
           setCurrentUser(null);
           setIsGuestMode(false);
           setIsLoginModalOpen(true);
+          setActiveTab('tracking');
+          if (typeof window !== 'undefined') {
+            window.history.pushState({ tab: 'tracking' }, '', getPathFromTab('tracking'));
+          }
         }}
         onOpenLogin={() => {
           setIsGuestMode(false);
@@ -437,90 +541,54 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
-        {/* Metric Summary Strip - Visible ONLY to Logged-in Staff (Admin & Kurir) */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 space-y-4 sm:space-y-6 min-w-0 overflow-x-hidden">
+        {/* Metric Summary Strip - Matching Mockup 4 Cards */}
         {currentUser && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between h-full min-h-[118px]">
-              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Total Invoice Aktif</span>
-                <Package className="w-4 h-4 text-indigo-600" />
-              </div>
-              <div className="font-mono tabular-nums text-2xl font-bold text-slate-900 my-1">
-                {invoices.length}
-              </div>
-              <div className="text-[11px] text-slate-500 truncate">
-                <span className="font-semibold text-slate-700">{invoices.filter((i) => i.diambil === 1).length} Diambil</span>
-                <span className="mx-1.5">·</span>
-                <span>{invoices.filter((i) => i.diambil === 0).length} Menunggu</span>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between h-full min-h-[118px]">
-              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Kurir Dalam Perjalanan</span>
-                <Truck className="w-4 h-4 text-emerald-600" />
-              </div>
-              <div className="font-mono tabular-nums text-2xl font-bold text-slate-900 my-1">
-                {couriers.filter((c) => c.status_aktif === 'mengantar').length}
-              </div>
-              <div className="text-[11px] text-slate-500 truncate">
-                <span className="font-semibold text-slate-700">{couriers.length} Kurir</span> terdaftar di sistem
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between h-full min-h-[118px]">
-              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Paket Terkirim Hari Ini</span>
-                <ShieldCheck className="w-4 h-4 text-indigo-600" />
-              </div>
-              <div className="font-mono tabular-nums text-2xl font-bold text-slate-900 my-1">
-                {invoices.filter((i) => i.status_pengiriman === 'terkirim').length}
-              </div>
-              <div className="text-[11px] text-emerald-600 font-medium truncate">
-                Verifikasi bukti & tanda tangan
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between h-full min-h-[118px]">
-              <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                <span>Sistem Database POS</span>
-                <Database className="w-4 h-4 text-indigo-600" />
-              </div>
-              <div className="flex items-center gap-2 my-1">
-                <span
-                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                    dbStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-                  }`}
-                />
-                <span className="text-base font-bold text-slate-900 truncate">
-                  {dbStatus?.connected ? 'Server Terhubung' : 'Mode Intranet Lokal'}
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-500 truncate">
-                Sinkronisasi data transaksi kasir real-time
-              </div>
-            </div>
-          </div>
+          <MetricCards invoices={invoices} couriers={couriers} dbStatus={dbStatus} />
         )}
 
         {/* Tab 1: Live Interactive Map (Admin & Kurir only) */}
         {activeTab === 'map' && currentUser && (
           <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <h1 className="text-lg font-bold text-slate-900">
-                  Pelacakan Kurir Real-Time & Rute Pengantaran
-                </h1>
-                <p className="text-xs text-slate-500">
-                  Pergerakan GPS kurir dari Hub Pusat Percetakan ke alamat tujuan pemesan
-                </p>
+            {/* Title & Action Row matching Mockup */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {/* Purple square with MapPin icon */}
+                <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-indigo-600/20">
+                  <MapPin className="w-5 h-5 stroke-[2.2]" />
+                </div>
+                <div>
+                  <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight leading-tight">
+                    Pelacakan Kurir Real-Time & Rute Pengantaran
+                  </h1>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    Pantau pergerakan kurir, rute tercepat, dan status pengantaran secara langsung.
+                  </p>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                {/* Optional sleek quick selector if multiple couriers exist */}
+                {couriers.length > 1 && (
+                  <div className="hidden md:flex items-center gap-1.5 bg-white border border-slate-200/90 rounded-full px-3 py-1.5 text-xs shadow-xs">
+                    <span className="text-slate-500 font-medium">Kurir:</span>
+                    <select
+                      value={selectedCourierIdOnMap || activeCourierForMap?.id || ''}
+                      onChange={(e) => setSelectedCourierIdOnMap(Number(e.target.value))}
+                      className="font-bold text-slate-800 bg-transparent border-none outline-none cursor-pointer text-xs"
+                    >
+                      {couriers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nama} ({c.plat_nomor})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <button
-                  onClick={() => handleAdvanceStep(primaryCourier?.id || 1)}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  onClick={() => handleAdvanceStep(activeCourierForMap?.id || 1)}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-full shadow-md shadow-indigo-600/20 transition-all flex items-center gap-2 cursor-pointer active:scale-95"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Update Posisi Kurir</span>
@@ -528,9 +596,16 @@ export default function App() {
               </div>
             </div>
 
+            {/* Live Interactive Map with all Floating HUD overlays */}
             <LeafletMap
-              courier={primaryCourier}
+              courier={activeCourierForMap}
               activeInvoice={activeInvoiceForCourier}
+              invoices={dikirimInvoices}
+              couriers={couriers}
+              selectedCourierId={selectedCourierIdOnMap || activeCourierForMap?.id || null}
+              onSelectCourier={(cId) => setSelectedCourierIdOnMap(cId)}
+              selectedInvoiceId={activeInvoiceForCourier?.id || null}
+              onSelectTrackedInvoice={(invId) => setTrackedInvoiceId(invId)}
               onAdvanceStep={handleAdvanceStep}
               onResetRoute={handleResetRoute}
               onSelectInvoice={(inv) => setSelectedInvoice(inv)}
@@ -544,9 +619,7 @@ export default function App() {
             invoices={invoices}
             onSelectInvoice={(inv) => setSelectedInvoice(inv)}
             onToggleDiambil={handleToggleDiambil}
-            onTrackOnMap={() => {
-              handleTabChange('map');
-            }}
+            onTrackOnMap={handleTrackInvoiceOnMap}
           />
         )}
 
@@ -560,6 +633,7 @@ export default function App() {
             onSendCourierGps={handleSendCourierGps}
             onAdvanceStep={handleAdvanceStep}
             onScanSubInvoice={handleScanSubInvoice}
+            onTrackOnMap={handleTrackInvoiceOnMap}
             currentUser={currentUser}
           />
         )}
@@ -570,7 +644,12 @@ export default function App() {
             invoices={invoices}
             currentUser={currentUser}
             onOpenLogin={() => setIsLoginModalOpen(true)}
-            onSelectTrackInvoice={(inv) => setSelectedInvoice(inv)}
+            onSelectTrackInvoice={(inv) => {
+              setSelectedInvoice(inv);
+              if (currentUser) {
+                handleTrackInvoiceOnMap(inv);
+              }
+            }}
             onOpenMap={() => {
               if (currentUser) {
                 handleTabChange('map');
@@ -631,16 +710,19 @@ export default function App() {
                 localStorage.setItem('kirimkilat_user', JSON.stringify(user));
               }
               setIsLoginModalOpen(false);
-              if (user.level === 'kurir') {
-                setActiveTab('courier');
-              } else {
-                setActiveTab('map');
+              const targetTab = user.level === 'kurir' ? 'courier' : 'map';
+              setActiveTab(targetTab);
+              if (typeof window !== 'undefined') {
+                window.history.pushState({ tab: targetTab }, '', getPathFromTab(targetTab));
               }
             }}
             onContinueAsGuest={() => {
               setIsGuestMode(true);
               setIsLoginModalOpen(false);
               setActiveTab('tracking');
+              if (typeof window !== 'undefined') {
+                window.history.pushState({ tab: 'tracking' }, '', getPathFromTab('tracking'));
+              }
             }}
           />
         </div>

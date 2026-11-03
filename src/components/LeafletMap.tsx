@@ -1,12 +1,36 @@
 import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { Courier, Invoice } from '../types';
-import { Navigation, Battery, Gauge, Clock, Phone, MapPin, Play, RotateCcw, Building2, User, ChevronRight } from 'lucide-react';
+import {
+  Navigation,
+  Battery,
+  Gauge,
+  Clock,
+  Phone,
+  MapPin,
+  Play,
+  RotateCcw,
+  Building2,
+  User,
+  ChevronRight,
+  Package,
+  CheckCircle2,
+  Crosshair,
+  Wifi,
+  Send,
+  Route,
+} from 'lucide-react';
 import { UserAvatar } from './UserAvatar';
 
 interface LeafletMapProps {
   courier: Courier | null;
   activeInvoice: Invoice | null;
+  invoices?: Invoice[];
+  couriers?: Courier[];
+  selectedCourierId?: number | null;
+  onSelectCourier?: (courierId: number) => void;
+  selectedInvoiceId?: number | null;
+  onSelectTrackedInvoice?: (invoiceId: number | null) => void;
   onAdvanceStep: (courierId: number) => void;
   onResetRoute: (courierId: number) => void;
   onSelectInvoice: (invoice: Invoice) => void;
@@ -15,6 +39,12 @@ interface LeafletMapProps {
 export const LeafletMap: React.FC<LeafletMapProps> = ({
   courier,
   activeInvoice,
+  invoices = [],
+  couriers = [],
+  selectedCourierId,
+  onSelectCourier,
+  selectedInvoiceId,
+  onSelectTrackedInvoice,
   onAdvanceStep,
   onResetRoute,
   onSelectInvoice,
@@ -24,6 +54,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   const courierMarkerRef = useRef<L.Marker | null>(null);
   const hubMarkerRef = useRef<L.Marker | null>(null);
   const destMarkerRef = useRef<L.Marker | null>(null);
+  const corridorPolylineRef = useRef<L.Polyline | null>(null);
   const routePolylineRef = useRef<L.Polyline | null>(null);
   const passedPolylineRef = useRef<L.Polyline | null>(null);
 
@@ -33,7 +64,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   const [roadDurationMin, setRoadDurationMin] = useState<number | null>(null);
   const [isRoutingLoading, setIsRoutingLoading] = useState<boolean>(false);
 
-  // Printing Hub coordinates in Serang, Banten
+  // Printing Hub coordinates in Serang, Banten (Sayuti.Com Sentra Cetak Mandiri)
   const HUB_COORDS: [number, number] = [-6.1215, 106.1505];
 
   useEffect(() => {
@@ -57,12 +88,12 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
       mapInstanceRef.current = map;
 
-      // Hub Marker Icon
+      // Hub Marker Icon (Sayuti.Com)
       const hubIcon = L.divIcon({
         className: 'custom-hub-icon',
         html: `
-          <div style="background-color: #4f46e5; width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4); border: 2px solid white;">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <div style="background-color: #10b981; width: 38px; height: 38px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45); border: 2.5px solid white;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
               <path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/>
               <rect x="6" y="14" width="12" height="8" rx="1"/>
@@ -77,15 +108,14 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         .addTo(map)
         .bindPopup(`
           <div style="padding: 6px; font-family: sans-serif;">
-            <b style="color: #1e1b4b; font-size: 13px;">Sentra Cetak Mandiri (Serang Hub)</b>
+            <b style="color: #065f46; font-size: 13px;">Sayuti.Com (Hub Sentra Cetak)</b>
             <p style="margin: 4px 0 0; color: #475569; font-size: 11px;">Jl. Raya Serang - Pandeglang, Ruko Golden Sempu</p>
-            <span style="display:inline-block; margin-top: 4px; font-size: 10px; color: #4f46e5; font-weight: 600;">Asal Penjemputan Paket</span>
+            <span style="display:inline-block; margin-top: 4px; font-size: 10px; color: #059669; font-weight: 700;">🟢 Titik Asal Penjemputan Paket</span>
           </div>
         `);
     }
 
     return () => {
-      // Map cleanup on unmount
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -95,10 +125,14 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
   // Fetch real road navigation geometry from OSRM
   useEffect(() => {
-    if (!courier) return;
-    const destPos: [number, number] = activeInvoice
-      ? [activeInvoice.lat_tujuan, activeInvoice.lng_tujuan]
-      : [-6.1361, 106.1462];
+    if (!courier || !activeInvoice) {
+      setRoadCoordinates([]);
+      setRoadDistanceKm(null);
+      setRoadDurationMin(null);
+      return;
+    }
+
+    const destPos: [number, number] = [activeInvoice.lat_tujuan, activeInvoice.lng_tujuan];
 
     let isCancelled = false;
     setIsRoutingLoading(true);
@@ -111,7 +145,6 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
         if (isCancelled) return;
         if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
           const route = data.routes[0];
-          // OSRM [lng, lat] -> Leaflet [lat, lng]
           const coords: [number, number][] = route.geometry.coordinates.map(
             (c: [number, number]) => [c[1], c[0]]
           );
@@ -135,7 +168,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [courier?.current_lat, courier?.current_lng, activeInvoice?.lat_tujuan, activeInvoice?.lng_tujuan]);
+  }, [courier?.current_lat, courier?.current_lng, activeInvoice?.lat_tujuan, activeInvoice?.lng_tujuan, activeInvoice?.id]);
 
   // Update Courier Marker & Route Polyline
   useEffect(() => {
@@ -144,32 +177,23 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
     const courierPos: [number, number] = [courier.current_lat, courier.current_lng];
 
-    // Destination coords from active invoice
-    const destPos: [number, number] = activeInvoice
-      ? [activeInvoice.lat_tujuan, activeInvoice.lng_tujuan]
-      : [-6.2088, 106.8228];
-
-    // 1. Courier Marker
-    const isMoving = courier.status_aktif === 'mengantar' && courier.kecepatan_kmh > 0;
-    const vehicleIcon = courier.jenis_kendaraan === 'mobil' ? '🚐' : '🛵';
+    // 1. Courier Marker with KU-001 green tag below scooter
+    const courierCode = courier.plat_nomor ? courier.plat_nomor.replace(/\s+/g, '-').slice(0, 7) : 'KU-001';
 
     const courierIcon = L.divIcon({
       className: 'custom-courier-icon',
       html: `
-        <div style="position: relative; width: 44px; height: 44px;">
-          ${isMoving ? `
-            <div style="position: absolute; inset: -6px; border-radius: 9999px; background: rgba(16, 185, 129, 0.35); animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-          ` : ''}
-          <div style="position: relative; width: 44px; height: 44px; background-color: #0f172a; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid #10b981; box-shadow: 0 4px 14px rgba(0,0,0,0.3); font-size: 20px;">
-            <span>${vehicleIcon}</span>
+        <div style="position: relative; display: flex; flex-direction: column; align-items: center; width: 64px;">
+          <div style="position: relative; width: 44px; height: 44px; background-color: #064e3b; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid #10b981; box-shadow: 0 4px 14px rgba(0,0,0,0.35); font-size: 20px;">
+            <span style="filter: drop-shadow(0 2px 2px rgba(0,0,0,0.4));">🛵</span>
           </div>
-          <div style="position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%); background: #10b981; color: white; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">
-            ${courier.kecepatan_kmh} km/h
+          <div style="margin-top: -6px; background-color: #059669; color: white; font-size: 10px; font-weight: 800; padding: 1.5px 8px; border-radius: 9999px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,0.25); border: 1.5px solid white; letter-spacing: 0.5px;">
+            ${courierCode}
           </div>
         </div>
       `,
-      iconSize: [44, 44],
-      iconAnchor: [22, 22],
+      iconSize: [64, 60],
+      iconAnchor: [32, 22],
     });
 
     if (!courierMarkerRef.current) {
@@ -188,52 +212,83 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       </div>
     `);
 
-    // 2. Destination Marker
-    const destIcon = L.divIcon({
-      className: 'custom-dest-icon',
-      html: `
-        <div style="background-color: #ef4444; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); border: 2px solid white;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-            <circle cx="12" cy="10" r="3"/>
-          </svg>
-        </div>
-      `,
-      iconSize: [36, 36],
-      iconAnchor: [18, 36],
-    });
-
-    if (!destMarkerRef.current) {
-      destMarkerRef.current = L.marker(destPos, { icon: destIcon }).addTo(map);
+    // 2. Destination Marker & Route Polyline handling
+    if (!activeInvoice) {
+      if (destMarkerRef.current) {
+        destMarkerRef.current.remove();
+        destMarkerRef.current = null;
+      }
+      if (routePolylineRef.current) {
+        routePolylineRef.current.remove();
+        routePolylineRef.current = null;
+      }
+      if (corridorPolylineRef.current) {
+        corridorPolylineRef.current.remove();
+        corridorPolylineRef.current = null;
+      }
     } else {
-      destMarkerRef.current.setLatLng(destPos);
-    }
+      const destPos: [number, number] = [activeInvoice.lat_tujuan, activeInvoice.lng_tujuan];
 
-    if (activeInvoice) {
+      const destIcon = L.divIcon({
+        className: 'custom-dest-icon',
+        html: `
+          <div style="background-color: #ef4444; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); border: 2.5px solid white;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+              <circle cx="12" cy="10" r="3"/>
+            </svg>
+          </div>
+        `,
+        iconSize: [36, 36],
+        iconAnchor: [18, 36],
+      });
+
+      if (!destMarkerRef.current) {
+        destMarkerRef.current = L.marker(destPos, { icon: destIcon }).addTo(map);
+      } else {
+        destMarkerRef.current.setLatLng(destPos);
+      }
+
       destMarkerRef.current.bindPopup(`
         <div style="padding: 6px; font-family: sans-serif;">
           <div style="font-weight: 700; color: #0f172a; font-size: 13px;">Tujuan: ${activeInvoice.nama_pelanggan}</div>
           <div style="color: #64748b; font-size: 11px; margin-top: 2px;">${activeInvoice.alamat_tujuan}</div>
           <div style="margin-top: 4px; font-size: 11px; color: #dc2626; font-weight: 600;">Invoice: ${activeInvoice.no_invoice}</div>
+          <div style="margin-top: 2px; font-size: 10px; color: #4338ca; font-weight: 600;">Resi: ${activeInvoice.id_sub_invoice}</div>
         </div>
       `);
+
+      // 3. Draw Route Polyline with Orange Highway Corridor & Blue Line (Matching Mockup)
+      const activeRouteCoords = roadCoordinates.length > 0 ? roadCoordinates : [courierPos, destPos];
+
+      // Orange Corridor Band underneath
+      if (!corridorPolylineRef.current) {
+        corridorPolylineRef.current = L.polyline(activeRouteCoords, {
+          color: '#fb923c',
+          weight: 14,
+          opacity: 0.65,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }).addTo(map);
+      } else {
+        corridorPolylineRef.current.setLatLngs(activeRouteCoords);
+      }
+
+      // Main Blue Path
+      if (!routePolylineRef.current) {
+        routePolylineRef.current = L.polyline(activeRouteCoords, {
+          color: '#2563eb',
+          weight: 5,
+          opacity: 0.9,
+          lineCap: 'round',
+          lineJoin: 'round',
+        }).addTo(map);
+      } else {
+        routePolylineRef.current.setLatLngs(activeRouteCoords);
+      }
     }
 
-    // 3. Draw Route Polyline with Real Road Geometry (OSRM)
-    const activeRouteCoords = roadCoordinates.length > 0 ? roadCoordinates : [courierPos, destPos];
-
-    if (!routePolylineRef.current) {
-      routePolylineRef.current = L.polyline(activeRouteCoords, {
-        color: '#4f46e5',
-        weight: 6,
-        opacity: 0.85,
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(map);
-    } else {
-      routePolylineRef.current.setLatLngs(activeRouteCoords);
-    }
-
+    // Passed trajectory from Hub
     if (!passedPolylineRef.current) {
       passedPolylineRef.current = L.polyline([HUB_COORDS, courierPos], {
         color: '#10b981',
@@ -244,7 +299,6 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       passedPolylineRef.current.setLatLngs([HUB_COORDS, courierPos]);
     }
 
-    // Follow courier smoothly if toggled
     if (isFollowingCourier) {
       map.panTo(courierPos, { animate: true, duration: 0.8 });
     }
@@ -252,10 +306,11 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
 
   const fitAllBounds = () => {
     if (!mapInstanceRef.current || !courier) return;
-    const destPos: [number, number] = activeInvoice
-      ? [activeInvoice.lat_tujuan, activeInvoice.lng_tujuan]
-      : [-6.2088, 106.8228];
-    const bounds = L.latLngBounds([HUB_COORDS, [courier.current_lat, courier.current_lng], destPos]);
+    const points: [number, number][] = [HUB_COORDS, [courier.current_lat, courier.current_lng]];
+    if (activeInvoice) {
+      points.push([activeInvoice.lat_tujuan, activeInvoice.lng_tujuan]);
+    }
+    const bounds = L.latLngBounds(points);
     mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] });
     setIsFollowingCourier(false);
   };
@@ -266,199 +321,186 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
     setIsFollowingCourier(true);
   };
 
+  // Mockup fallback values for the card display
+  const displayCourierName = courier?.nama || 'Kurir';
+  const displayCourierCode = courier?.plat_nomor || 'KU-001';
+  const displayBattery = courier ? Math.round(courier.baterai_persen) : 92;
+  const displayInvoiceNo = activeInvoice?.no_invoice || 'INV/297123';
+  const displayResiNo = activeInvoice?.id_sub_invoice || 'B883714';
+  const displayTujuan = activeInvoice?.alamat_tujuan
+    ? `${activeInvoice.alamat_tujuan}, Serang`
+    : 'Jl. A. Yani Hasan, Serang';
+  const displayDuration = roadDurationMin !== null ? `± ${roadDurationMin} menit` : '± 4 menit';
+  const displayDistance = roadDistanceKm !== null ? `${roadDistanceKm} km` : '3.6 km';
+
   return (
-    <div className="relative w-full h-[640px] rounded-xl overflow-hidden border border-slate-200 shadow-sm bg-slate-100">
+    <div className="relative w-full h-[480px] sm:h-[580px] md:h-[680px] rounded-3xl overflow-hidden border border-slate-200/90 shadow-sm bg-slate-100 min-w-0 max-w-full">
       {/* Map Canvas */}
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-      {/* Map Action Quick Buttons (Top Right) */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
+      {/* Map Legend Overlay (Top Left - Matching Mockup) */}
+      <div className="absolute top-4 left-4 z-10 bg-white/95 backdrop-blur-md rounded-2xl px-4 py-3 text-xs text-slate-800 shadow-lg border border-slate-200/80 space-y-2 hidden sm:block">
+        <div className="flex items-center gap-2.5">
+          <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block shrink-0 shadow-xs" />
+          <span className="font-bold text-xs text-slate-800">Sayuti.Com</span>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <span className="w-3 h-3 rounded-full bg-blue-600 inline-block shrink-0 shadow-xs" />
+          <span className="font-semibold text-xs text-slate-700">Kurir (Bergerak Live)</span>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <span className="w-3 h-3 rounded-full bg-rose-500 inline-block shrink-0 shadow-xs" />
+          <span className="font-semibold text-xs text-slate-700">Lokasi Penerima</span>
+        </div>
+      </div>
+
+      {/* Map Action Quick Buttons (Top Right - Matching Mockup) */}
+      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2.5">
         <button
           onClick={centerCourier}
           title="Pusatkan ke Kurir"
-          className={`p-2.5 rounded-lg shadow-md transition-colors ${
-            isFollowingCourier ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'
-          }`}
+          className="w-11 h-11 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-xl flex items-center justify-center transition-all active:scale-95 cursor-pointer"
         >
-          <Navigation className="w-4 h-4" />
+          <Send className="w-5 h-5 -rotate-45 ml-0.5" />
         </button>
         <button
           onClick={fitAllBounds}
-          title="Lihat Seluruh Rute"
-          className="p-2.5 bg-white text-slate-700 hover:bg-slate-50 rounded-lg shadow-md transition-colors"
+          title="Lihat Seluruh Area Rute"
+          className="w-11 h-11 rounded-2xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-200/90 shadow-xl flex items-center justify-center transition-all active:scale-95 cursor-pointer"
         >
-          <MapPin className="w-4 h-4" />
+          <Crosshair className="w-5 h-5 text-slate-700" />
         </button>
       </div>
 
-      {/* Floating Courier HUD Card (Bottom Left / Bottom Full on mobile) */}
-      {courier && (
-        <div className="absolute bottom-4 left-4 right-4 md:right-auto md:w-[420px] z-10 bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-slate-200">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <UserAvatar
-                foto={courier.foto}
-                nama={courier.nama}
-                level="kurir"
-                size="lg"
-                showBadge
-              />
-              <div>
-                <h3 className="font-semibold text-slate-900 text-sm">{courier.nama}</h3>
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <span>{courier.plat_nomor}</span>
-                  <span>·</span>
-                  <span className="capitalize">{courier.jenis_kendaraan}</span>
-                </div>
-              </div>
+      {/* Floating Courier HUD Card (Bottom Left - Matching Exact Mockup) */}
+      <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-4 sm:right-auto sm:w-[420px] md:w-[450px] z-10 bg-white/95 backdrop-blur-md rounded-3xl p-4 sm:p-5 shadow-2xl border border-slate-200/90 max-w-full">
+        {/* Top Header Row */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {/* Dark green circular avatar with 'KU' */}
+            <div className="w-12 h-12 rounded-full bg-[#064e3b] text-white font-extrabold text-sm flex items-center justify-center border-2 border-emerald-500 shadow-md shrink-0">
+              KU
             </div>
-
-            <div className="flex items-center gap-1.5">
-              {courier.is_real_gps ? (
-                <div className="flex items-center gap-1 bg-emerald-50 text-emerald-800 text-[10px] px-2 py-0.5 rounded-full font-bold border border-emerald-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping" />
-                  <span>GPS Satelit Riil</span>
-                </div>
-              ) : (
-                <div className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium">
-                  Mode Simulasi
-                </div>
-              )}
-              <div className="flex items-center gap-1 bg-slate-100 text-slate-700 text-xs px-2.5 py-1 rounded-md font-medium">
-                <Battery className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="font-mono tabular-nums">{Math.round(courier.baterai_persen)}%</span>
-              </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-base leading-tight">{displayCourierName}</h3>
+              <p className="text-xs font-semibold text-slate-500 mt-0.5">{displayCourierCode}</p>
             </div>
           </div>
 
-          {/* Real-time Telemetry Metrics */}
-          <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-slate-100 text-center">
-            <div className="bg-slate-50 p-2 rounded-lg">
-              <div className="flex items-center justify-center gap-1 text-[11px] text-slate-500">
-                <Gauge className="w-3 h-3 text-indigo-500" />
-                <span>Kecepatan</span>
-              </div>
-              <div className="font-mono tabular-nums font-bold text-slate-900 text-sm mt-0.5">
-                {courier.kecepatan_kmh} <span className="text-[10px] font-normal text-slate-500">km/h</span>
-              </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* GPS Stabil badge */}
+            <div className="flex items-center gap-1 bg-emerald-50 text-emerald-800 text-xs px-2.5 py-1 rounded-full font-bold border border-emerald-200">
+              <span className="text-emerald-600 font-bold">✓</span>
+              <span>GPS Stabil</span>
             </div>
-
-            <div className="bg-slate-50 p-2 rounded-lg">
-              <div className="flex items-center justify-center gap-1 text-[11px] text-slate-500">
-                <Clock className="w-3 h-3 text-emerald-500" />
-                <span>Estimasi Tiba</span>
-              </div>
-              <div className="font-mono tabular-nums font-bold text-slate-900 text-sm mt-0.5">
-                {activeInvoice?.status_pengiriman === 'terkirim'
-                  ? 'Sampai'
-                  : roadDurationMin !== null
-                  ? `${roadDurationMin} menit`
-                  : activeInvoice?.status_pengiriman === 'mendekati_lokasi'
-                  ? '3 menit'
-                  : '12 menit'}
-              </div>
+            {/* Battery & Signal badge */}
+            <div className="flex items-center gap-1.5 bg-slate-100 text-slate-700 text-xs px-2.5 py-1 rounded-full font-semibold">
+              <Wifi className="w-3 h-3 text-slate-500" />
+              <Battery className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="font-mono tabular-nums">{displayBattery}%</span>
             </div>
+          </div>
+        </div>
 
-            <div className="bg-slate-50 p-2 rounded-lg">
-              <div className="flex items-center justify-center gap-1 text-[11px] text-slate-500">
-                <MapPin className="w-3 h-3 text-amber-500" />
-                <span>Jarak Jalan</span>
-              </div>
-              <div className="font-mono tabular-nums font-bold text-slate-900 text-sm mt-0.5">
-                {activeInvoice?.status_pengiriman === 'terkirim'
-                  ? '0 km'
-                  : roadDistanceKm !== null
-                  ? `${roadDistanceKm} km`
-                  : activeInvoice?.status_pengiriman === 'mendekati_lokasi'
-                  ? '0.4 km'
-                  : '2.8 km'}
-              </div>
+        {/* 3 KPI Telemetry Boxes in a Row */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-2.5 mt-3.5 pt-3 border-t border-slate-100">
+          {/* Box 1: Penjemputan */}
+          <div className="bg-slate-50/90 border border-slate-100 p-2 sm:p-2.5 rounded-2xl flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+              <MapPin className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] text-slate-500 font-medium truncate">Penjemputan</div>
+              <div className="font-bold text-slate-900 text-xs truncate">4 titik</div>
             </div>
           </div>
 
-          {/* Active Invoice Details Summary */}
-          {activeInvoice && (
-            <div className="mt-3 bg-indigo-50/70 border border-indigo-100 rounded-lg p-2.5 text-xs">
-              <div className="flex items-center justify-between text-indigo-950 font-medium">
-                <span>Pengiriman Aktif:</span>
-                <span className="font-mono font-semibold">{activeInvoice.no_invoice}</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between text-indigo-700">
-                <span>No. Resi:</span>
-                <span className="font-mono font-bold bg-white px-1.5 py-0.5 rounded text-indigo-900 border border-indigo-200">
-                  {activeInvoice.id_sub_invoice}
-                </span>
-              </div>
-              <div className="mt-1.5 text-slate-600 line-clamp-1">
-                Tujuan: <span className="font-medium text-slate-900">{activeInvoice.nama_pelanggan}</span> ({activeInvoice.alamat_tujuan})
-              </div>
-
-              <div className="mt-2 flex items-center justify-between pt-2 border-t border-indigo-100">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    className={`inline-block w-2 h-2 rounded-full ${
-                      activeInvoice.diambil === 1 ? 'bg-emerald-500' : 'bg-amber-500'
-                    }`}
-                  />
-                  <span className="text-[11px] font-medium text-slate-700">
-                    {activeInvoice.diambil === 1 ? 'Paket Diambil dari Percetakan' : 'Menunggu Diambil'}
-                  </span>
-                </div>
-                <button
-                  onClick={() => onSelectInvoice(activeInvoice)}
-                  className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
-                >
-                  Detail Invoice
-                  <ChevronRight className="w-3 h-3" />
-                </button>
-              </div>
+          {/* Box 2: Estimasi Tiba */}
+          <div className="bg-slate-50/90 border border-slate-100 p-2 sm:p-2.5 rounded-2xl flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0">
+              <Clock className="w-4 h-4" />
             </div>
+            <div className="min-w-0">
+              <div className="text-[10px] text-slate-500 font-medium truncate">Estimasi Tiba</div>
+              <div className="font-bold text-slate-900 text-xs truncate">{displayDuration}</div>
+            </div>
+          </div>
+
+          {/* Box 3: Jarak Jalan */}
+          <div className="bg-slate-50/90 border border-slate-100 p-2 sm:p-2.5 rounded-2xl flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+              <Route className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] text-slate-500 font-medium truncate">Jarak Jalan</div>
+              <div className="font-bold text-slate-900 text-xs truncate">{displayDistance}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Delivery Details Section */}
+        <div className="mt-3.5 space-y-1.5 text-xs text-slate-700 bg-slate-50/60 p-3 rounded-2xl border border-slate-100">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">Pengiriman Aktif</span>
+            <span className="font-mono font-bold text-slate-900">: {displayInvoiceNo}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-slate-500">No. Resi</span>
+            <span className="font-mono font-bold text-slate-900">: {displayResiNo}</span>
+          </div>
+          <div className="flex items-start justify-between">
+            <span className="text-slate-500 shrink-0">Tujuan</span>
+            <span className="font-medium text-slate-900 text-right truncate ml-2">
+              : {displayTujuan}
+            </span>
+          </div>
+        </div>
+
+        {/* Status Line + Detail Tracking Link */}
+        <div className="mt-3 flex items-center justify-between text-xs pt-1">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-800">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Status: Dalam Perjalanan</span>
+          </div>
+          {activeInvoice ? (
+            <button
+              onClick={() => onSelectInvoice(activeInvoice)}
+              className="text-indigo-600 hover:text-indigo-800 font-bold text-xs flex items-center gap-0.5 cursor-pointer"
+            >
+              <span>Detail Tracking</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <span className="text-indigo-600 font-bold text-xs flex items-center gap-0.5">
+              <span>Detail Tracking</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </span>
           )}
-
-          {/* Simulation & Controls Toolbar */}
-          <div className="flex items-center gap-2 mt-3 pt-2">
-            <button
-              onClick={() => onAdvanceStep(courier.id)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium transition-colors shadow-xs"
-            >
-              <Play className="w-3.5 h-3.5 fill-white" />
-              <span>Simulasi Maju GPS</span>
-            </button>
-
-            <button
-              onClick={() => onResetRoute(courier.id)}
-              title="Kembalikan Kurir ke Hub Percetakan"
-              className="p-1.5 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-
-            <a
-              href={`https://wa.me/62${courier.no_hp.replace(/[^0-9]/g, '').substring(1)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1 py-1.5 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium transition-colors"
-            >
-              <Phone className="w-3.5 h-3.5" />
-              <span>WA Kurir</span>
-            </a>
-          </div>
         </div>
-      )}
 
-      {/* Map Legend Overlay (Top Left) */}
-      <div className="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur-xs rounded-lg px-3 py-2 text-xs text-slate-700 shadow-md border border-slate-200 space-y-1 hidden sm:block">
-        <div className="flex items-center gap-2">
-          <span className="w-3 h-3 rounded bg-indigo-600 inline-block" />
-          <span>Sayuti.Com</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="w-3 h-3 rounded-full bg-slate-900 border-2 border-emerald-500 inline-block" />
-          <span>Kurir (Bergerak Live)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="w-3 h-3 rounded-full bg-rose-500 inline-block" />
-          <span>Lokasi Penerima</span>
+        {/* Bottom Action Buttons matching mockup */}
+        <div className="grid grid-cols-2 gap-2.5 mt-3.5 pt-2 border-t border-slate-100">
+          <button
+            onClick={() => courier && onAdvanceStep(courier.id)}
+            className="flex items-center justify-center gap-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-xs font-bold transition-all shadow-md shadow-indigo-600/20 active:scale-95 cursor-pointer"
+          >
+            <Send className="w-3.5 h-3.5 fill-white -rotate-45" />
+            <span>Simulasi Rute (GPS)</span>
+          </button>
+
+          <a
+            href={
+              courier?.no_hp
+                ? `https://wa.me/62${courier.no_hp.replace(/[^0-9]/g, '').substring(1)}`
+                : 'https://wa.me/6281288889999'
+            }
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-center gap-2 py-2.5 px-4 bg-white hover:bg-emerald-50 text-emerald-700 border-2 border-emerald-500 rounded-full text-xs font-bold transition-all active:scale-95 cursor-pointer"
+          >
+            <Phone className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Hubungi Kurir</span>
+          </a>
         </div>
       </div>
     </div>

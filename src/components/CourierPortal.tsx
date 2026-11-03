@@ -47,6 +47,7 @@ interface CourierPortalProps {
   ) => void;
   onAdvanceStep: (courierId: number) => void;
   onScanSubInvoice: (id_sub_invoice: string, courierId: number) => Promise<boolean>;
+  onTrackOnMap?: (invoice: Invoice) => void;
   currentUser?: AppUser | null;
 }
 
@@ -58,6 +59,7 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
   onSendCourierGps,
   onAdvanceStep,
   onScanSubInvoice,
+  onTrackOnMap,
   currentUser,
 }) => {
   // If logged in as courier, bind to their courier ID
@@ -87,7 +89,40 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
   const wakeLockRef = useRef<any>(null);
   const watchIdRef = useRef<number | null>(null);
 
-  const activeCourier = couriers.find((c) => c.id === selectedCourierId) || couriers[0];
+  // Sync selectedCourierId when couriers or currentUser changes
+  useEffect(() => {
+    if (currentUser?.level === 'kurir') {
+      const courierIdToUse = currentUser.id_kurir || currentUser.id || currentUser.id_user;
+      if (courierIdToUse && selectedCourierId !== courierIdToUse) {
+        setSelectedCourierId(courierIdToUse);
+      }
+    } else if (couriers.length > 0 && !couriers.some((c) => c.id === selectedCourierId)) {
+      setSelectedCourierId(couriers[0].id);
+    }
+  }, [couriers, currentUser, selectedCourierId]);
+
+  // Guaranteed non-null activeCourier with realistic defaults if couriers array is still loading
+  const courierIdFromUser = currentUser?.id_kurir || (currentUser?.level === 'kurir' ? (currentUser.id || currentUser.id_user) : undefined);
+
+  const activeCourier: Courier =
+    couriers.find((c) => c.id === selectedCourierId) ||
+    (courierIdFromUser ? couriers.find((c) => c.id === courierIdFromUser) : undefined) ||
+    couriers[0] || {
+      id: courierIdFromUser || selectedCourierId || 376,
+      nama: currentUser?.nama || 'Jaja',
+      no_hp: currentUser?.no_hp || '0812-8899-7766',
+      plat_nomor: 'A 4210 BE',
+      jenis_kendaraan: 'motor',
+      foto: currentUser?.foto || '',
+      current_lat: -6.1215,
+      current_lng: 106.1505,
+      kecepatan_kmh: 0,
+      baterai_persen: 100,
+      status_aktif: 'standby',
+      heading_deg: 0,
+    };
+
+  const courierId = activeCourier.id;
 
   // Check WakeLock support on mount
   useEffect(() => {
@@ -98,7 +133,7 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
 
   // Real-Time GPS Watcher via Geolocation API
   useEffect(() => {
-    if (!isLiveGpsActive) {
+    if (!isLiveGpsActive || !courierId) {
       if (watchIdRef.current !== null && navigator.geolocation) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -157,7 +192,7 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
 
         // Broadcast real GPS to server -> server broadcasts to admin & customer via SSE
         onSendCourierGps(
-          activeCourier.id,
+          courierId,
           latitude,
           longitude,
           speed || 0,
@@ -193,10 +228,11 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
         setWakeLockActive(false);
       }
     };
-  }, [isLiveGpsActive, activeCourier.id, onSendCourierGps]);
+  }, [isLiveGpsActive, courierId, onSendCourierGps]);
 
   // One-time manual GPS pulse refresh
   const handleManualGpsPulse = () => {
+    if (!courierId) return;
     if (!navigator.geolocation) {
       setGpsError('Geolocation tidak didukung pada browser ini.');
       return;
@@ -209,12 +245,12 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
         setLastGpsTime(new Date().toLocaleTimeString('id-ID'));
         setGpsError(null);
         onSendCourierGps(
-          activeCourier.id,
+          courierId,
           latitude,
           longitude,
           speed || 0,
           heading || 0,
-          activeCourier.baterai_persen,
+          activeCourier?.baterai_persen,
           accuracy
         );
       },
@@ -234,7 +270,7 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
   const courierAllPackages = invoices.filter(
     (inv) =>
       (inv.cara_ambil === undefined || inv.cara_ambil === 'dikirim') &&
-      (inv.id_kurir === activeCourier?.id || inv.id === activeCourier?.id_invoice_aktif)
+      (inv.id_kurir === courierId || (courierId && inv.id === activeCourier?.id_invoice_aktif))
   );
 
   // 1. ACTIVE MANIFEST: Only packages that are pending delivery (NOT yet delivered/received)
@@ -253,7 +289,9 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
 
   const handleStartDelivery = (inv: Invoice) => {
     onUpdateStatus(inv.id, 'dalam_perjalanan');
-    onAdvanceStep(activeCourier.id);
+    if (courierId) {
+      onAdvanceStep(courierId);
+    }
   };
 
   const handleOpenCompleteModal = (inv: Invoice) => {
@@ -275,6 +313,18 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
     setCompletingInvoice(null);
     setRecipientName('');
   };
+
+  if (!activeCourier) {
+    return (
+      <div className="w-full bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 shadow-xs">
+        <Package className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+        <h3 className="font-bold text-slate-800 text-sm">Menghubungkan Data Kurir...</h3>
+        <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+          Sedang menyelaraskan data kurir lapangan dari sistem. Silakan tunggu beberapa saat.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full space-y-6">
@@ -333,7 +383,7 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
           {/* Primary Action: Scan Barcode / Resi Button */}
           <button
             onClick={() => setIsScannerOpen(true)}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2"
+            className="w-full sm:w-auto justify-center px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer"
           >
             <Scan className="w-4 h-4" />
             <span>Scan Resi Paket Sebelum Antar</span>
@@ -381,10 +431,10 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
           </div>
 
           {/* Toggle Button & Manual Pulse */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto shrink-0">
             <button
               onClick={() => setIsLiveGpsActive(!isLiveGpsActive)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs ${
+              className={`w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-xs cursor-pointer ${
                 isLiveGpsActive
                   ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/25 ring-2 ring-emerald-300'
                   : 'bg-slate-900 hover:bg-slate-800 text-white'
@@ -397,9 +447,10 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
             <button
               onClick={handleManualGpsPulse}
               title="Kirim koordinat GPS manual saat ini"
-              className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors border border-slate-200"
+              className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors border border-slate-200 flex items-center justify-center cursor-pointer"
             >
               <RefreshCw className="w-4 h-4" />
+              <span className="sm:hidden text-xs font-semibold ml-1.5">Refresh GPS</span>
             </button>
           </div>
         </div>
@@ -643,7 +694,7 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
                               {inv.nama_pelanggan}
                             </h4>
                             <p className="text-xs text-slate-700 font-medium mt-1 leading-relaxed bg-white p-2.5 rounded-lg border border-slate-200/80 shadow-2xs">
-                              {inv.alamat_tujuan}, <span className="font-semibold text-slate-900">{inv.kota}</span>
+                              {inv.alamat_tujuan || 'Kota Serang'}{inv.kota ? `, ${inv.kota}` : ''}
                             </p>
                             {inv.catatan_kurir && (
                               <p className="text-[11px] text-indigo-700 bg-indigo-50/80 p-2 rounded-lg mt-1.5 border border-indigo-100">
@@ -656,28 +707,46 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
 
                       {/* Navigation Buttons Pinned to Bottom */}
                       <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-200/80 mt-auto">
+                        {onTrackOnMap && (
+                          <button
+                            type="button"
+                            onClick={() => onTrackOnMap(inv)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                          >
+                            <MapPin className="w-3.5 h-3.5 text-indigo-200" />
+                            <span>Lacak di Peta Live</span>
+                          </button>
+                        )}
+
                         <a
                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                            `${inv.alamat_tujuan}, ${inv.kota}`
+                            `${inv.alamat_tujuan || 'Kota Serang'}, ${inv.kota || 'Banten'}`
                           )}`}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
                         >
                           <Navigation className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Buka Google Maps</span>
+                          <span>Google Maps</span>
                           <ExternalLink className="w-3 h-3 text-slate-400" />
                         </a>
 
-                        <a
-                          href={`https://wa.me/62${inv.no_telepon.replace(/[^0-9]/g, '').substring(1)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
-                        >
-                          <Phone className="w-3.5 h-3.5" />
-                          <span>WA: {inv.no_telepon}</span>
-                        </a>
+                        {inv.no_telepon ? (
+                          <a
+                            href={`https://wa.me/62${(inv.no_telepon || '').replace(/[^0-9]/g, '').replace(/^0+/, '')}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                            <span>WA: {inv.no_telepon}</span>
+                          </a>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 text-slate-500 rounded-lg text-xs font-medium">
+                            <Phone className="w-3.5 h-3.5 text-slate-400" />
+                            <span>No. Telp (-)</span>
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -834,14 +903,14 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
                               {inv.nama_pelanggan}
                             </h4>
                             <p className="text-xs text-slate-700 font-medium mt-1 leading-relaxed bg-white p-2.5 rounded-lg border border-slate-200/80 shadow-2xs">
-                              {inv.alamat_tujuan}, <span className="font-semibold text-slate-900">{inv.kota}</span>
+                              {inv.alamat_tujuan || 'Kota Serang'}{inv.kota ? `, ${inv.kota}` : ''}
                             </p>
                           </div>
                         </div>
                       </div>
 
                       <div className="pt-3 border-t border-slate-200/80 text-[11px] text-slate-500 mt-auto">
-                        Kontak: <span className="font-mono font-medium text-slate-700">{inv.no_telepon}</span>
+                        Kontak: <span className="font-mono font-medium text-slate-700">{inv.no_telepon || '-'}</span>
                       </div>
                     </div>
 

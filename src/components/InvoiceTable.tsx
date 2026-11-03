@@ -129,9 +129,9 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
         </div>
 
         {/* Filter, Search, and Limit Bar */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
           {/* Search Box */}
-          <div className="relative min-w-[220px]">
+          <div className="relative w-full sm:w-auto sm:min-w-[220px]">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -146,7 +146,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({
           </div>
 
           {/* Filter Status Kirim */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-lg text-xs">
+          <div className="flex flex-wrap sm:flex-nowrap items-center bg-slate-100 p-1 rounded-lg text-xs w-full sm:w-auto">
             <button
               onClick={() => {
                 setStatusKirimFilter('all');
