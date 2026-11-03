@@ -11,6 +11,8 @@ import { CourierAnalyticsDashboard } from './components/CourierAnalyticsDashboar
 import { LoginForm } from './components/LoginForm';
 import { EditProfileModal } from './components/EditProfileModal';
 import { MetricCards } from './components/MetricCards';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { AppUser, Courier, Invoice, PushNotificationPayload, DatabaseStatus } from './types';
 import { playNotificationSound } from './utils/audio';
 import { getTabFromPath, getPathFromTab, AppTab } from './utils/routes';
@@ -755,6 +757,14 @@ export default function App() {
           }}
         />
       )}
+
+      {/* Offline PWA Connectivity Indicator */}
+      <OfflineIndicator />
+
+      {/* Floating Install Prompt for Mobile & Android Users */}
+      <div className="md:hidden">
+        <PWAInstallButton variant="floating" />
+      </div>
     </div>
   );
 }

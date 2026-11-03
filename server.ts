@@ -1824,9 +1824,13 @@ async function startServer() {
     });
   } else {
     console.log('[KirimKilat Server] 🛠️ Mode: DEVELOPMENT (Menggunakan Vite Middleware)');
+    // Ensure absolute file path for CJS require compatibility in Vite plugins
+    // @ts-ignore
+    globalThis.__dirname = path.resolve(__dirname, 'package.json');
+    process.env.DISABLE_HMR = 'true';
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: process.env.DISABLE_HMR !== 'true' },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
     app.use(vite.middlewares);

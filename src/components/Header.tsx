@@ -22,6 +22,7 @@ import { AppUser } from '../types';
 import { UserAvatar } from './UserAvatar';
 import { getPathFromTab } from '../utils/routes';
 import { HelpCenterModal } from './HelpCenterModal';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   activeTab: 'map' | 'invoices' | 'courier' | 'tracking' | 'analytics' | 'database';
@@ -220,6 +221,9 @@ export const Header: React.FC<HeaderProps> = ({
                   <Headphones className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Pusat Bantuan</span>
                 </button>
+
+                {/* Tombol Install Android PWA */}
+                <PWAInstallButton variant="header" />
               </>
             )}
 
@@ -281,12 +285,18 @@ export const Header: React.FC<HeaderProps> = ({
                   <Headphones className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Pusat Bantuan</span>
                 </button>
+
+                {/* Tombol Install Android PWA untuk Kurir */}
+                <PWAInstallButton variant="header" />
               </>
             )}
           </nav>
 
           {/* Zone 3 (Right): Notifications & User Profile Chip */}
-          <div className="flex items-center justify-end gap-2 shrink-0">
+          <div className="flex items-center justify-end gap-1.5 sm:gap-2 shrink-0">
+            {/* Install Button for Mobile & Tablet top bar */}
+            <PWAInstallButton variant="header" className="lg:hidden text-[11px] px-2.5 py-1" />
+
             {!isGuest && (
               <>
                 <button
@@ -346,6 +356,10 @@ export const Header: React.FC<HeaderProps> = ({
                     <div className="px-3.5 py-2 border-b border-slate-100">
                       <div className="font-bold text-slate-900 truncate">{currentUser.nama}</div>
                       <div className="text-[11px] text-slate-500 capitalize">{currentUser.level}</div>
+                    </div>
+
+                    <div className="p-2 border-b border-slate-100">
+                      <PWAInstallButton variant="header" className="w-full justify-center text-xs py-2" />
                     </div>
 
                     <button

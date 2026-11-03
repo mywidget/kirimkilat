@@ -64,7 +64,7 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
       {/* =====================================================================
           1. Interactive On-Screen Modal View (Hidden during window.print())
           ===================================================================== */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto print:hidden">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto print:hidden">
         <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
           {/* Modal Header */}
           <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">

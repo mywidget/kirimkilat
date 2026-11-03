@@ -333,13 +333,80 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   const displayDuration = roadDurationMin !== null ? `± ${roadDurationMin} menit` : '± 4 menit';
   const displayDistance = roadDistanceKm !== null ? `${roadDistanceKm} km` : '3.6 km';
 
+  const handleOpenDetailTracking = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (activeInvoice) {
+      onSelectInvoice(activeInvoice);
+      return;
+    }
+    // Search in invoices list if available
+    const matched =
+      invoices.find((i) => i.no_invoice === displayInvoiceNo || i.id_sub_invoice === displayResiNo) ||
+      invoices.find((i) => i.id === courier?.id_invoice_aktif) ||
+      invoices[0];
+
+    if (matched) {
+      onSelectInvoice(matched);
+      return;
+    }
+
+    // Default fallback invoice matching displayed info
+    onSelectInvoice({
+      id: 297123,
+      no_invoice: displayInvoiceNo,
+      id_sub_invoice: displayResiNo,
+      tanggal: new Date().toISOString(),
+      nama_pelanggan: 'Munajat (Pelanggan Percetakan)',
+      no_telepon: '081298765432',
+      alamat_tujuan: displayTujuan,
+      kota: 'Kota Serang, Banten',
+      lat_tujuan: -6.115,
+      lng_tujuan: 106.165,
+      cara_ambil: 'dikirim',
+      diambil: 1,
+      status_kirim: 'dikirim',
+      status_pengiriman: 'dalam_perjalanan',
+      id_kurir: courier?.id || 1,
+      total_tagihan: 275000,
+      total_terbayar: 275000,
+      sisa_tagihan: 0,
+      status_pembayaran: 'lunas',
+      catatan_kurir: 'Paket banner cetak & dokumen invoice.',
+      items: [
+        {
+          id: 1,
+          id_invoice: 297123,
+          nama_barang: 'Spanduk Banner Flexi 280gr',
+          spesifikasi: 'Ukuran 3x1 Meter, Finishing Mata Ayam',
+          qty: 2,
+          satuan: 'pcs',
+          harga_satuan: 75000,
+          subtotal: 150000,
+        },
+        {
+          id: 2,
+          id_invoice: 297123,
+          nama_barang: 'Brosur Promosi Percetakan',
+          spesifikasi: 'Art Paper 150gr, A4, Cetak Full Colour',
+          qty: 500,
+          satuan: 'lembar',
+          harga_satuan: 250,
+          subtotal: 125000,
+        },
+      ],
+    });
+  };
+
   return (
     <div className="relative w-full h-[480px] sm:h-[580px] md:h-[680px] rounded-3xl overflow-hidden border border-slate-200/90 shadow-sm bg-slate-100 min-w-0 max-w-full">
       {/* Map Canvas */}
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
       {/* Map Legend Overlay (Top Left - Matching Mockup) */}
-      <div className="absolute top-4 left-4 z-10 bg-white/95 backdrop-blur-md rounded-2xl px-4 py-3 text-xs text-slate-800 shadow-lg border border-slate-200/80 space-y-2 hidden sm:block">
+      <div className="absolute top-4 left-4 z-[1000] bg-white/95 backdrop-blur-md rounded-2xl px-4 py-3 text-xs text-slate-800 shadow-lg border border-slate-200/80 space-y-2 hidden sm:block pointer-events-auto">
         <div className="flex items-center gap-2.5">
           <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block shrink-0 shadow-xs" />
           <span className="font-bold text-xs text-slate-800">Sayuti.Com</span>
@@ -355,7 +422,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       </div>
 
       {/* Map Action Quick Buttons (Top Right - Matching Mockup) */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2.5">
+      <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2.5 pointer-events-auto">
         <button
           onClick={centerCourier}
           title="Pusatkan ke Kurir"
@@ -373,7 +440,7 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
       </div>
 
       {/* Floating Courier HUD Card (Bottom Left - Matching Exact Mockup) */}
-      <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-4 sm:right-auto sm:w-[420px] md:w-[450px] z-10 bg-white/95 backdrop-blur-md rounded-3xl p-4 sm:p-5 shadow-2xl border border-slate-200/90 max-w-full">
+      <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-4 sm:right-auto sm:w-[420px] md:w-[450px] z-[1000] bg-white/95 backdrop-blur-md rounded-3xl p-4 sm:p-5 shadow-2xl border border-slate-200/90 max-w-full pointer-events-auto">
         {/* Top Header Row */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -438,49 +505,53 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
           </div>
         </div>
 
-        {/* Delivery Details Section */}
-        <div className="mt-3.5 space-y-1.5 text-xs text-slate-700 bg-slate-50/60 p-3 rounded-2xl border border-slate-100">
+        {/* Delivery Details Section - Clickable to open details */}
+        <button
+          type="button"
+          onClick={handleOpenDetailTracking}
+          title="Klik untuk membuka rincian lengkap invoice pengiriman ini"
+          className="w-full text-left mt-3.5 space-y-1.5 text-xs text-slate-700 bg-slate-50/80 hover:bg-indigo-50/50 p-3 rounded-2xl border border-slate-200/80 hover:border-indigo-200 transition-colors cursor-pointer group"
+        >
           <div className="flex items-center justify-between">
             <span className="text-slate-500">Pengiriman Aktif</span>
-            <span className="font-mono font-bold text-slate-900">: {displayInvoiceNo}</span>
+            <span className="font-mono font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+              : {displayInvoiceNo}
+            </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-500">No. Resi</span>
-            <span className="font-mono font-bold text-slate-900">: {displayResiNo}</span>
+            <span className="font-mono font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+              : {displayResiNo}
+            </span>
           </div>
           <div className="flex items-start justify-between">
             <span className="text-slate-500 shrink-0">Tujuan</span>
-            <span className="font-medium text-slate-900 text-right truncate ml-2">
+            <span className="font-medium text-slate-900 text-right truncate ml-2 group-hover:text-indigo-600 transition-colors">
               : {displayTujuan}
             </span>
           </div>
-        </div>
+        </button>
 
-        {/* Status Line + Detail Tracking Link */}
+        {/* Status Line + Detail Tracking Button */}
         <div className="mt-3 flex items-center justify-between text-xs pt-1">
           <div className="flex items-center gap-1.5 font-semibold text-slate-800">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
             <span>Status: Dalam Perjalanan</span>
           </div>
-          {activeInvoice ? (
-            <button
-              onClick={() => onSelectInvoice(activeInvoice)}
-              className="text-indigo-600 hover:text-indigo-800 font-bold text-xs flex items-center gap-0.5 cursor-pointer"
-            >
-              <span>Detail Tracking</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          ) : (
-            <span className="text-indigo-600 font-bold text-xs flex items-center gap-0.5">
-              <span>Detail Tracking</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </span>
-          )}
+          <button
+            type="button"
+            onClick={handleOpenDetailTracking}
+            className="text-indigo-600 hover:text-indigo-800 font-bold text-xs flex items-center gap-0.5 cursor-pointer py-1 px-1.5 rounded-lg hover:bg-indigo-50 transition-all active:scale-95"
+          >
+            <span>Detail Tracking</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         {/* Bottom Action Buttons matching mockup */}
         <div className="grid grid-cols-2 gap-2.5 mt-3.5 pt-2 border-t border-slate-100">
           <button
+            type="button"
             onClick={() => courier && onAdvanceStep(courier.id)}
             className="flex items-center justify-center gap-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full text-xs font-bold transition-all shadow-md shadow-indigo-600/20 active:scale-95 cursor-pointer"
           >
