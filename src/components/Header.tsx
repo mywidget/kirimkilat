@@ -221,9 +221,6 @@ export const Header: React.FC<HeaderProps> = ({
                   <Headphones className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Pusat Bantuan</span>
                 </button>
-
-                {/* Tombol Install Android PWA */}
-                <PWAInstallButton variant="header" />
               </>
             )}
 
@@ -285,18 +282,12 @@ export const Header: React.FC<HeaderProps> = ({
                   <Headphones className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Pusat Bantuan</span>
                 </button>
-
-                {/* Tombol Install Android PWA untuk Kurir */}
-                <PWAInstallButton variant="header" />
               </>
             )}
           </nav>
 
           {/* Zone 3 (Right): Notifications & User Profile Chip */}
           <div className="flex items-center justify-end gap-1.5 sm:gap-2 shrink-0">
-            {/* Install Button for Mobile & Tablet top bar */}
-            <PWAInstallButton variant="header" className="lg:hidden text-[11px] px-2.5 py-1" />
-
             {!isGuest && (
               <>
                 <button

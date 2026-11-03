@@ -8,6 +8,10 @@ import fs from 'fs';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 
+// Prevent tsx default global __dirname = '.' from breaking packages (e.g. vite-plugin-pwa) using import.meta.url
+delete (globalThis as Record<string, unknown>).__dirname;
+process.env.DISABLE_HMR = 'true';
+
 dotenv.config();
 
 // Multi-algorithm password verification supporting PHP password_hash (bcrypt), MD5, SHA1, SHA256, and Plaintext
@@ -1805,6 +1809,91 @@ app.post('/api/notifications/test', (req: Request, res: Response) => {
 // Static assets fallback (e.g. courier avatars and facility photos)
 app.use('/src/assets', express.static(path.resolve(__dirname, 'src/assets')));
 
+// PWA Manifest endpoints with guaranteed correct MIME types and CORS
+app.get(['/manifest.webmanifest', '/manifest.json'], (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const distManifest = path.resolve(__dirname, 'dist/manifest.webmanifest');
+  const pubManifest = path.resolve(__dirname, 'public/manifest.webmanifest');
+  const pubJson = path.resolve(__dirname, 'public/manifest.json');
+
+  if (fs.existsSync(distManifest)) {
+    return res.sendFile(distManifest);
+  }
+  if (fs.existsSync(pubManifest)) {
+    return res.sendFile(pubManifest);
+  }
+  if (fs.existsSync(pubJson)) {
+    return res.sendFile(pubJson);
+  }
+
+  return res.json({
+    id: '/',
+    name: 'KirimKilat - Pelacakan Kurir Real-Time',
+    short_name: 'KirimKilat',
+    description: 'Aplikasi pengiriman paket percetakan dengan pelacakan kurir real-time dan manajemen invoice.',
+    start_url: '/',
+    scope: '/',
+    display: 'standalone',
+    orientation: 'portrait',
+    background_color: '#F8FAFC',
+    theme_color: '#4F46E5',
+    prefer_related_applications: false,
+    icons: [
+      { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/pwa-maskable-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+      { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ],
+    categories: ['business', 'logistics', 'productivity'],
+  });
+});
+
+// PWA Service Worker script endpoint with strict Service-Worker-Allowed and MIME headers
+app.get('/sw.js', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Service-Worker-Allowed', '/');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+  const distSw = path.resolve(__dirname, 'dist/sw.js');
+  if (fs.existsSync(distSw)) {
+    return res.sendFile(distSw);
+  }
+
+  // Resilient fallback service worker with active fetch handler for Chromium / Android WebAPK validation
+  return res.send(`
+    /* KirimKilat Service Worker Fallback */
+    self.addEventListener('install', () => {
+      // Safe passive installation
+    });
+    self.addEventListener('activate', () => {
+      // Safe activation without forcing clients.claim()
+    });
+    self.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'SKIP_WAITING') {
+        self.skipWaiting();
+      }
+    });
+    self.addEventListener('fetch', (event) => {
+      // Allow network requests to pass through normally while satisfying PWA offline requirement
+      event.respondWith(
+        fetch(event.request).catch(() => caches.match(event.request))
+      );
+    });
+  `);
+});
+
+// Serve workbox bundles directly if requested
+app.get('/workbox-:hash.js', (req: Request, res: Response, next) => {
+  const hash = req.params.hash;
+  const distFile = path.resolve(__dirname, `dist/workbox-${hash}.js`);
+  if (fs.existsSync(distFile)) {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    return res.sendFile(distFile);
+  }
+  next();
+});
+
 // Vite middleware in dev or static serve in prod
 async function startServer() {
   const distPath = path.resolve(__dirname, 'dist');
@@ -1824,9 +1913,7 @@ async function startServer() {
     });
   } else {
     console.log('[KirimKilat Server] 🛠️ Mode: DEVELOPMENT (Menggunakan Vite Middleware)');
-    // Ensure absolute file path for CJS require compatibility in Vite plugins
-    // @ts-ignore
-    globalThis.__dirname = path.resolve(__dirname, 'package.json');
+    delete (globalThis as Record<string, unknown>).__dirname;
     process.env.DISABLE_HMR = 'true';
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

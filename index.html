@@ -3,8 +3,59 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // Ignore harmless Vite HMR WebSocket closing messages in preview environment
+      // Mock Vite HMR WebSocket connection to prevent "WebSocket closed without opened" in preview environment
       (function() {
+        if (typeof window !== 'undefined' && window.WebSocket) {
+          const OrigWebSocket = window.WebSocket;
+          const PatchedWebSocket = function(url, protocols) {
+            const isViteHmr = (typeof protocols === 'string' && (protocols === 'vite-hmr' || protocols === 'vite-ping'))
+              || (Array.isArray(protocols) && (protocols.includes('vite-hmr') || protocols.includes('vite-ping')))
+              || (typeof url === 'string' && (url.includes('vite-hmr') || url.includes('token=')));
+
+            if (isViteHmr) {
+              const target = new EventTarget();
+              const dummy = {
+                readyState: 1, // WebSocket.OPEN
+                OPEN: 1,
+                CONNECTING: 0,
+                CLOSING: 2,
+                CLOSED: 3,
+                url: String(url),
+                protocol: typeof protocols === 'string' ? protocols : 'vite-hmr',
+                bufferedAmount: 0,
+                extensions: '',
+                binaryType: 'blob',
+                send: function() {},
+                close: function() {},
+                addEventListener: target.addEventListener.bind(target),
+                removeEventListener: target.removeEventListener.bind(target),
+                dispatchEvent: target.dispatchEvent.bind(target),
+                set onopen(fn) { target.addEventListener('open', fn); },
+                set onclose(fn) { target.addEventListener('close', fn); },
+                set onmessage(fn) { target.addEventListener('message', fn); },
+                set onerror(fn) { target.addEventListener('error', fn); },
+              };
+              setTimeout(function() {
+                try {
+                  target.dispatchEvent(new Event('open'));
+                  // Send standard Vite HMR connected payload so @vite/client does not initiate reload
+                  target.dispatchEvent(new MessageEvent('message', {
+                    data: JSON.stringify({ type: 'connected' })
+                  }));
+                } catch (_) {}
+              }, 0);
+              return dummy;
+            }
+            return new OrigWebSocket(url, protocols);
+          };
+          PatchedWebSocket.prototype = OrigWebSocket.prototype;
+          PatchedWebSocket.CONNECTING = OrigWebSocket.CONNECTING;
+          PatchedWebSocket.OPEN = OrigWebSocket.OPEN;
+          PatchedWebSocket.CLOSING = OrigWebSocket.CLOSING;
+          PatchedWebSocket.CLOSED = OrigWebSocket.CLOSED;
+          window.WebSocket = PatchedWebSocket;
+        }
+
         const origError = console.error;
         console.error = function(...args) {
           const msg = args.map(function(a) { return (typeof a === 'object' && a && a.message) ? a.message : String(a); }).join(' ');
@@ -28,6 +79,22 @@
           }
         });
       })();
+
+      // PWA: Capture native beforeinstallprompt immediately on page load
+      window.__deferredPWAInstallPrompt = null;
+      window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        window.__deferredPWAInstallPrompt = e;
+        try {
+          window.dispatchEvent(new Event('pwa-prompt-ready'));
+        } catch (_) {}
+      });
+      window.addEventListener('appinstalled', function() {
+        window.__deferredPWAInstallPrompt = null;
+        try {
+          window.dispatchEvent(new Event('pwa-app-installed'));
+        } catch (_) {}
+      });
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>KirimKilat - Pelacakan Kurir Real-Time & Manajemen Invoice</title>
@@ -41,6 +108,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="KirimKilat" />
+    <meta name="application-name" content="KirimKilat" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
