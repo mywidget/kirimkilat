@@ -62,11 +62,17 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
   onTrackOnMap,
   currentUser,
 }) => {
+  // Strictly include only users with level 'kurir'
+  const courierLevelOnly = React.useMemo(
+    () => couriers.filter((c) => !c.level || c.level.toLowerCase() === 'kurir'),
+    [couriers]
+  );
+
   // If logged in as courier, bind to their courier ID
   const defaultCourierId =
     currentUser?.level === 'kurir' && currentUser.id_kurir
       ? currentUser.id_kurir
-      : couriers[0]?.id || 1;
+      : courierLevelOnly[0]?.id || 376;
 
   const [selectedCourierId, setSelectedCourierId] = useState<number>(defaultCourierId);
   const [recipientName, setRecipientName] = useState('');
@@ -96,21 +102,22 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
       if (courierIdToUse && selectedCourierId !== courierIdToUse) {
         setSelectedCourierId(courierIdToUse);
       }
-    } else if (couriers.length > 0 && !couriers.some((c) => c.id === selectedCourierId)) {
-      setSelectedCourierId(couriers[0].id);
+    } else if (courierLevelOnly.length > 0 && !courierLevelOnly.some((c) => c.id === selectedCourierId)) {
+      setSelectedCourierId(courierLevelOnly[0].id);
     }
-  }, [couriers, currentUser, selectedCourierId]);
+  }, [courierLevelOnly, currentUser, selectedCourierId]);
 
   // Guaranteed non-null activeCourier with realistic defaults if couriers array is still loading
   const courierIdFromUser = currentUser?.id_kurir || (currentUser?.level === 'kurir' ? (currentUser.id || currentUser.id_user) : undefined);
 
   const activeCourier: Courier =
-    couriers.find((c) => c.id === selectedCourierId) ||
-    (courierIdFromUser ? couriers.find((c) => c.id === courierIdFromUser) : undefined) ||
-    couriers[0] || {
+    courierLevelOnly.find((c) => c.id === selectedCourierId) ||
+    (courierIdFromUser ? courierLevelOnly.find((c) => c.id === courierIdFromUser) : undefined) ||
+    courierLevelOnly[0] || {
       id: courierIdFromUser || selectedCourierId || 376,
-      nama: currentUser?.nama || 'Jaja',
-      no_hp: currentUser?.no_hp || '0812-8899-7766',
+      nama: currentUser?.level === 'kurir' ? currentUser.nama : 'Kurir',
+      level: 'kurir',
+      no_hp: currentUser?.no_hp || '0817-6800-210',
       plat_nomor: 'A 4210 BE',
       jenis_kendaraan: 'motor',
       foto: currentUser?.foto || '',
@@ -369,13 +376,18 @@ export const CourierPortal: React.FC<CourierPortalProps> = ({
               <select
                 value={selectedCourierId}
                 onChange={(e) => setSelectedCourierId(parseInt(e.target.value))}
+                disabled={courierLevelOnly.length === 0}
                 className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 font-medium text-slate-800 text-xs focus:ring-2 focus:ring-indigo-500"
               >
-                {couriers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nama} ({c.plat_nomor})
-                  </option>
-                ))}
+                {courierLevelOnly.length === 0 ? (
+                  <option value="">Belum ada user level kurir</option>
+                ) : (
+                  courierLevelOnly.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nama} ({c.plat_nomor})
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           )}

@@ -139,6 +139,7 @@ function broadcastSse(eventType: string, data: unknown) {
 export interface CourierState {
   id: number;
   nama: string;
+  level?: string;
   no_hp: string;
   plat_nomor: string;
   jenis_kendaraan: 'motor' | 'mobil';
@@ -157,10 +158,12 @@ export interface CourierState {
   last_gps_update?: string;
 }
 
+// Default fallback while MySQL initializes; replaced immediately by syncCouriersFromDb()
 let activeCouriers: CourierState[] = [
   {
     id: 376,
-    nama: 'Jaja',
+    nama: 'Kurir',
+    level: 'kurir',
     no_hp: '0817-6800-210',
     plat_nomor: 'A 4210 BE',
     jenis_kendaraan: 'motor',
@@ -183,50 +186,12 @@ let activeCouriers: CourierState[] = [
       { lat: -6.1310, lng: 106.1625 }, // Tujuan Cipare / Serang
     ],
   },
-  {
-    id: 2,
-    nama: 'Hulman',
-    no_hp: '0812-9844-3311',
-    plat_nomor: 'A 3892 KZ',
-    jenis_kendaraan: 'motor',
-    foto: null as unknown as string,
-    current_lat: -6.1215,
-    current_lng: 106.1505,
-    kecepatan_kmh: 0,
-    baterai_persen: 95,
-    status_aktif: 'standby',
-    heading_deg: 0,
-    id_invoice_aktif: null,
-    routeIndex: 0,
-    waypoints: [
-      { lat: -6.1215, lng: 106.1505 },
-      { lat: -6.1180, lng: 106.1480 },
-      { lat: -6.1150, lng: 106.1450 },
-      { lat: -6.1120, lng: 106.1420 },
-    ],
-  },
-  {
-    id: 3,
-    nama: 'Agus Santoso',
-    no_hp: '0857-4433-2211',
-    plat_nomor: 'A 9481 UX (Blind Van)',
-    jenis_kendaraan: 'mobil',
-    foto: null as unknown as string,
-    current_lat: -6.1215,
-    current_lng: 106.1505,
-    kecepatan_kmh: 0,
-    baterai_persen: 100,
-    status_aktif: 'standby',
-    heading_deg: 90,
-    id_invoice_aktif: null,
-    routeIndex: 0,
-    waypoints: [
-      { lat: -6.1215, lng: 106.1505 },
-      { lat: -6.1250, lng: 106.1550 },
-      { lat: -6.1290, lng: 106.1610 },
-    ],
-  },
 ];
+
+let hasSyncedCouriersFromDb = false;
+let lastCouriersSyncTime = 0;
+let syncCouriersPromise: Promise<void> | null = null;
+const COURIERS_SYNC_TTL_MS = 15000;
 
 // Push notification history
 const notificationsHistory: Array<{
@@ -538,27 +503,53 @@ setInterval(async () => {
   }
 }, 20000);
 
-async function syncCouriersFromDb() {
+async function syncCouriersFromDb(force = false) {
   if (!isMySqlConnected || !mysqlPool) return;
-  try {
-    const [rows] = await mysqlPool.query<mysql.RowDataPacket[]>(
-      `SELECT id_user, username, nama, level, no_hp, foto FROM \`user\` WHERE level = 'kurir'`
-    );
-    if (Array.isArray(rows) && rows.length > 0) {
-      // Keep real courier users in activeCouriers
-      rows.forEach((u) => {
-        const existing = activeCouriers.find((c) => c.id === u.id_user);
-        if (existing) {
-          existing.nama = u.nama || existing.nama;
-          existing.no_hp = u.no_hp || existing.no_hp;
-        } else {
-          activeCouriers.push({
-            id: u.id_user,
-            nama: u.nama,
+  if (!force && hasSyncedCouriersFromDb && Date.now() - lastCouriersSyncTime < COURIERS_SYNC_TTL_MS) {
+    return;
+  }
+  if (syncCouriersPromise) {
+    return syncCouriersPromise;
+  }
+
+  syncCouriersPromise = (async () => {
+    try {
+      const [rows] = await mysqlPool!.query<mysql.RowDataPacket[]>(
+        `SELECT id_user, username, nama, level, no_hp, foto, aktif
+         FROM \`user\`
+         WHERE LOWER(TRIM(level)) = 'kurir'
+           AND (aktif IS NULL OR UPPER(TRIM(aktif)) != 'N')
+         ORDER BY nama ASC`
+      );
+
+      if (Array.isArray(rows)) {
+        const syncedCouriers: CourierState[] = rows.map((u) => {
+          const userId = Number(u.id_user || u.id);
+          const existing = activeCouriers.find((c) => c.id === userId);
+          const cleanPhoto =
+            u.foto && u.foto !== 'avatar04.png' && u.foto !== 'null' && String(u.foto).trim().length > 0
+              ? String(u.foto).trim()
+              : (null as unknown as string);
+
+          if (existing) {
+            return {
+              ...existing,
+              id: userId,
+              nama: u.nama || u.username || existing.nama,
+              level: 'kurir',
+              no_hp: u.no_hp || existing.no_hp,
+              foto: cleanPhoto || existing.foto,
+            };
+          }
+
+          return {
+            id: userId,
+            nama: u.nama || u.username || `Kurir #${userId}`,
+            level: 'kurir',
             no_hp: u.no_hp || '0812-0000-0000',
-            plat_nomor: 'A ' + Math.floor(1000 + Math.random() * 9000) + ' BE',
+            plat_nomor: userId === 376 ? 'A 4210 BE' : `A ${1000 + (userId % 9000)} BE`,
             jenis_kendaraan: 'motor',
-            foto: (u.foto && u.foto !== 'avatar04.png' && u.foto !== 'null') ? u.foto : null,
+            foto: cleanPhoto,
             current_lat: PRINTING_HUB.lat,
             current_lng: PRINTING_HUB.lng,
             kecepatan_kmh: 0,
@@ -571,14 +562,22 @@ async function syncCouriersFromDb() {
               { lat: PRINTING_HUB.lat, lng: PRINTING_HUB.lng },
               { lat: PRINTING_HUB.lat - 0.005, lng: PRINTING_HUB.lng + 0.005 },
             ],
-          });
-        }
-      });
-      console.log(`[Database] Synced ${rows.length} real courier(s) from table user.`);
+          };
+        });
+
+        activeCouriers = syncedCouriers;
+        hasSyncedCouriersFromDb = true;
+        lastCouriersSyncTime = Date.now();
+        console.log(`[Database] Synced ${rows.length} real courier(s) (level='kurir') from table user.`);
+      }
+    } catch (err) {
+      console.error('[Database] Failed to sync couriers:', err);
+    } finally {
+      syncCouriersPromise = null;
     }
-  } catch (err) {
-    console.error('[Database] Failed to sync couriers:', err);
-  }
+  })();
+
+  return syncCouriersPromise;
 }
 
 // Generate deterministic coordinates around Serang Hub for visualization
@@ -1020,7 +1019,14 @@ app.post('/api/db/reconnect', async (req: Request, res: Response) => {
 });
 
 // 2. Server-Sent Events (SSE) for Real-Time Courier GPS & Status updates
-app.get('/api/events', (_req: Request, res: Response) => {
+app.get('/api/events', async (_req: Request, res: Response) => {
+  if (!isMySqlConnected || !mysqlPool) {
+    await initMySqlConnection();
+  }
+  if (isMySqlConnected && mysqlPool && !hasSyncedCouriersFromDb) {
+    await syncCouriersFromDb(true);
+  }
+
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -1029,9 +1035,9 @@ app.get('/api/events', (_req: Request, res: Response) => {
   const clientId = `client-${Date.now()}-${Math.random().toString(36).substring(7)}`;
   sseClients.push({ id: clientId, res });
 
-  // Send initial ping and couriers state
+  // Send initial ping and couriers state (only level = 'kurir')
   res.write(`event: initial_state\ndata: ${JSON.stringify({
-    couriers: activeCouriers,
+    couriers: activeCouriers.filter((c) => !c.level || c.level.toLowerCase() === 'kurir'),
     notifications: notificationsHistory.slice(0, 5),
     serverTime: new Date().toISOString(),
   })}\n\n`);
@@ -1343,12 +1349,13 @@ app.patch('/api/invoices/:id/diambil', async (req: Request, res: Response) => {
 
     // Find courier name
     const courierObj = activeCouriers.find((c) => c.id === parseInt(id_kurir)) || activeCouriers[0];
+    const courierName = courierObj?.nama || 'Kurir';
 
     await mysqlPool.query(
       `UPDATE \`invoice\` 
        SET diambil = ?, status_kirim = ?, cara_ambil = 'dikirim', kurir = ?, tgl_kirim = IF(? = 1, NOW(), tgl_kirim)
        WHERE id_invoice = ?`,
-      [newDiambil, newStatusKirim, courierObj.nama, newDiambil, invoiceId]
+      [newDiambil, newStatusKirim, courierName, newDiambil, invoiceId]
     );
 
     // Fetch updated invoice
@@ -1367,13 +1374,15 @@ app.patch('/api/invoices/:id/diambil', async (req: Request, res: Response) => {
     syncInvoiceInCache(updated);
 
     if (newDiambil === 1) {
-      courierObj.status_aktif = 'mengantar';
-      courierObj.id_invoice_aktif = invoiceId;
-      broadcastSse('courier_update', courierObj);
+      if (courierObj) {
+        courierObj.status_aktif = 'mengantar';
+        courierObj.id_invoice_aktif = invoiceId;
+        broadcastSse('courier_update', courierObj);
+      }
 
       sendPushNotification({
         title: 'Paket Diambil dari Percetakan!',
-        body: `Kurir ${courierObj.nama} telah mengambil paket ${updated.id_sub_invoice} untuk ${updated.nama_pelanggan} (status_kirim: dikirim).`,
+        body: `Kurir ${courierName} telah mengambil paket ${updated.id_sub_invoice} untuk ${updated.nama_pelanggan} (status_kirim: dikirim).`,
         type: 'diambil',
         invoice_id: updated.id,
         id_sub_invoice: updated.id_sub_invoice,
@@ -1424,23 +1433,26 @@ app.post('/api/invoices/scan-sub-invoice', async (req: Request, res: Response) =
 
     const row = rows[0];
     const courierObj = activeCouriers.find((c) => c.id === parseInt(id_kurir)) || activeCouriers[0];
+    const courierName = courierObj?.nama || 'Kurir';
 
     // Update MySQL: diambil = 1, status_kirim = 'dikirim', cara_ambil = 'dikirim'
     await mysqlPool.query(
       `UPDATE \`invoice\`
        SET diambil = 1, status_kirim = 'dikirim', cara_ambil = 'dikirim', kurir = ?, tgl_kirim = NOW()
        WHERE id_invoice = ?`,
-      [courierObj.nama, row.id_invoice]
+      [courierName, row.id_invoice]
     );
 
     row.diambil = 1;
     row.status_kirim = 'dikirim';
     row.cara_ambil = 'dikirim';
-    row.kurir = courierObj.nama;
+    row.kurir = courierName;
 
-    courierObj.id_invoice_aktif = row.id_invoice;
-    courierObj.status_aktif = 'mengantar';
-    broadcastSse('courier_update', courierObj);
+    if (courierObj) {
+      courierObj.id_invoice_aktif = row.id_invoice;
+      courierObj.status_aktif = 'mengantar';
+      broadcastSse('courier_update', courierObj);
+    }
 
     // Fetch items
     const [items] = await mysqlPool.query<mysql.RowDataPacket[]>(
@@ -1479,7 +1491,7 @@ app.post('/api/invoices/scan-sub-invoice', async (req: Request, res: Response) =
 
     const notif = sendPushNotification({
       title: 'Scan Sub-Invoice Berhasil!',
-      body: `Kurir ${courierObj.nama} telah memverifikasi & mengambil paket ${updated.id_sub_invoice} untuk ${updated.nama_pelanggan}. Alamat tujuan: ${updated.alamat_tujuan}`,
+      body: `Kurir ${courierName} telah memverifikasi & mengambil paket ${updated.id_sub_invoice} untuk ${updated.nama_pelanggan}. Alamat tujuan: ${updated.alamat_tujuan}`,
       type: 'diambil',
       invoice_id: updated.id,
       id_sub_invoice: updated.id_sub_invoice,
@@ -1583,9 +1595,15 @@ app.patch('/api/invoices/:id/status', async (req: Request, res: Response) => {
   }
 });
 
-// 7. Couriers endpoint
-app.get('/api/couriers', (_req: Request, res: Response) => {
-  res.json(activeCouriers);
+// 7. Couriers endpoint (strictly users with level = 'kurir')
+app.get('/api/couriers', async (_req: Request, res: Response) => {
+  if (!isMySqlConnected || !mysqlPool) {
+    await initMySqlConnection();
+  }
+  if (isMySqlConnected && mysqlPool) {
+    await syncCouriersFromDb();
+  }
+  res.json(activeCouriers.filter((c) => !c.level || c.level.toLowerCase() === 'kurir'));
 });
 
 // Update courier location directly (from mobile GPS device or telemetry client)

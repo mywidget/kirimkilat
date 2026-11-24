@@ -74,6 +74,7 @@ export interface Invoice {
 export interface Courier {
   id: number;
   nama: string;
+  level?: string;
   no_hp: string;
   plat_nomor: string;
   jenis_kendaraan: 'motor' | 'mobil';

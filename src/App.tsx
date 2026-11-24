@@ -140,8 +140,8 @@ export default function App() {
       }
 
       if (courRes.ok) {
-        const courData = await courRes.json();
-        setCouriers(courData);
+        const courData: Courier[] = await courRes.json();
+        setCouriers(courData.filter((c) => !c.level || c.level.toLowerCase() === 'kurir'));
       }
 
       if (dbRes.ok) {
